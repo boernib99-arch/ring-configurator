@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import * as THREE from "three"
-import { BufferGeometryUtils } from "three/examples/jsm/utils/BufferGeometryUtils.js"
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js"
 import { Canvas, useThree } from "@react-three/fiber"
 import {
   ContactShadows,
@@ -452,7 +452,7 @@ function createLatheGeometry(
   if (style === "open" || style === "diagonal") {
     const capA = createEndCapGeometry(profile, phiStart, false, style === "diagonal" ? capSlope : 0, bandHalfWidth)
     const capB = createEndCapGeometry(profile, phiStart + phiLength, true, style === "diagonal" ? -capSlope : 0, bandHalfWidth)
-    const merged = BufferGeometryUtils.mergeBufferGeometries([geometry, capA, capB], false)
+    const merged = mergeGeometries([geometry, capA, capB], false)
     merged.computeVertexNormals()
     return merged
   }
@@ -512,7 +512,7 @@ function createOuterStripGeometry(
     new THREE.Vector2(outerRadius - thickness, yMin),
   ]
 
-  return createLatheGeometry(profile, style, styleSettings)
+  return createLatheGeometry(profile, style, styleSettings, Math.max(Math.abs(yMin), Math.abs(yMax)))
 }
 
 function createSoftWindowTexture() {

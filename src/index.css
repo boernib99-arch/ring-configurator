@@ -27,14 +27,14 @@ html,
 body,
 #root {
   width: 100%;
-  height: 100%;
+  min-height: 100%;
   margin: 0;
 }
 
 body {
-  width: 100vw;
-  height: 100vh;
-  display: block;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
   overflow: hidden;
   background: radial-gradient(circle at top left, #ffffff 0, #f6f1ea 45%, #eee6dc 100%);
   color: var(--text);
@@ -64,21 +64,20 @@ button {
 }
 
 .app-shell {
-  width: 100vw;
-  height: 100vh;
-  max-width: none;
+  width: min(1600px, 96vw);
+  aspect-ratio: 16 / 9;
+  max-height: 96vh;
   display: grid;
-  grid-template-columns: 480px minmax(0, 1fr);
-  gap: 28px;
-  padding: 28px;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 24px;
+  padding: 20px;
+  box-sizing: border-box;
   overflow: hidden;
-  position: relative;
 }
 
 .app-sidebar {
-  height: 100%;
   min-height: 0;
-  min-width: 0;
+  height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
   display: flex;
@@ -517,20 +516,19 @@ button {
 .app-main {
   min-width: 0;
   min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
-  gap: 16px;
-  overflow: hidden;
+  height: 100%;
 }
 
 .preview-stack {
-  display: contents;
-  position: static;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 150px;
+  gap: 16px;
 }
 
 .main-view-card {
-  width: 100%;
-  height: 100%;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -540,7 +538,7 @@ button {
   position: relative;
   width: 100%;
   height: 100%;
-  border-radius: 32px;
+  border-radius: 28px;
   overflow: hidden;
   background: radial-gradient(circle at 50% 40%, #f8f5f0 0%, #f1ece6 60%, #ebe5dc 100%);
   border: 1px solid rgba(120, 100, 80, 0.12);
@@ -556,20 +554,18 @@ button {
 }
 
 .technical-section {
-  height: 100%;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  display: grid;
-  grid-template-rows: auto 1fr;
-  gap: 10px;
+  height: 100%;
 }
 
 .technical-header {
-  flex: 0 0 auto;
+  height: 22px;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
   padding-inline: 2px;
 }
 
@@ -586,17 +582,15 @@ button {
   margin: 0;
   color: var(--muted);
   font-size: 10px;
-  text-align: left;
+  text-align: right;
   line-height: 1.3;
 }
 
 .ortho-grid {
-  min-height: 0;
-  height: 100%;
   display: grid;
-  grid-template-columns: 1fr;
-  grid-template-rows: 1fr 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 16px;
+  height: calc(100% - 26px);
 }
 
 .ortho-card {
@@ -752,27 +746,34 @@ button {
   text-align: right;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 900px) {
   body {
     display: block;
-    overflow: hidden;
+    overflow: auto;
   }
 
   .app-shell {
-    width: 100vw;
-    height: 100vh;
-    max-width: none;
+    width: 100%;
+    height: auto;
+    max-height: none;
+    aspect-ratio: auto;
     display: flex;
     flex-direction: column;
-    padding: 0;
+    padding: 16px;
   }
 
   .app-sidebar {
-    height: 100%;
-    overflow-y: auto;
+    height: auto;
+    overflow: visible;
   }
 
   .app-main {
+    height: auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .preview-stack {
     height: auto;
     display: flex;
     flex-direction: column;
@@ -805,42 +806,5 @@ button {
   .option-grid-styles,
   .option-grid-finishes {
     grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 1399px) {
-  .app-shell {
-    grid-template-columns: minmax(420px, 0.95fr) minmax(520px, 1.25fr);
-    gap: 24px;
-    padding: 24px;
-  }
-
-  .app-main {
-    display: grid;
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(320px, 48vh) minmax(0, 1fr);
-    gap: 16px;
-    overflow: hidden;
-  }
-
-  .main-view-card {
-    min-height: 320px;
-    height: 100%;
-  }
-
-  .technical-section {
-    min-height: 0;
-    height: 100%;
-  }
-
-  .ortho-grid {
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1fr;
-    gap: 16px;
-  }
-
-  .ortho-card {
-    height: 100%;
-    aspect-ratio: auto;
   }
 }
