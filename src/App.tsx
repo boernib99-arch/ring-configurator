@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react"
 import type { ReactNode } from "react"
+import { MoonStar, RotateCcw, SendHorizontal, Share2, SunMedium } from "lucide-react"
 import * as THREE from "three"
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js"
 import { Canvas, useThree } from "@react-three/fiber"
@@ -138,6 +139,7 @@ type StyleSettings = {
 
 type SubmitState = "idle" | "sending" | "success" | "error"
 type ThemeMode = "light" | "dark"
+type ConfirmAction = "submit" | "reset" | null
 
 const STORAGE_KEY = "ring-config"
 const ACCESS_KEY = "ring-config-access"
@@ -359,13 +361,17 @@ function buildProfile(
       new THREE.Vector2(innerRadius, -bandHalfWidth + bevel)
     )
   } else if (style === "faceted") {
+    const facetInset = wallThickness * 0.16
+    const facetPeak = wallThickness * 0.14
     profile.push(
       new THREE.Vector2(innerRadius, -bandHalfWidth + bevel),
-      new THREE.Vector2(innerRadius + bevel, -bandHalfWidth),
-      new THREE.Vector2(outerRadius * 0.98, -bandHalfWidth),
-      new THREE.Vector2(outerRadius + wallThickness * 0.12, 0),
-      new THREE.Vector2(outerRadius * 0.98, bandHalfWidth),
-      new THREE.Vector2(innerRadius + bevel, bandHalfWidth),
+      new THREE.Vector2(innerRadius + bevel * 0.78, -bandHalfWidth),
+      new THREE.Vector2(outerRadius - facetInset, -bandHalfWidth),
+      new THREE.Vector2(outerRadius + facetPeak, -bandHalfWidth * 0.48),
+      new THREE.Vector2(outerRadius + facetPeak * 1.08, 0),
+      new THREE.Vector2(outerRadius + facetPeak, bandHalfWidth * 0.48),
+      new THREE.Vector2(outerRadius - facetInset, bandHalfWidth),
+      new THREE.Vector2(innerRadius + bevel * 0.78, bandHalfWidth),
       new THREE.Vector2(innerRadius, bandHalfWidth - bevel),
       new THREE.Vector2(innerRadius, -bandHalfWidth + bevel)
     )
@@ -381,38 +387,29 @@ function createEndCapGeometry(
   slope: number,
   bandHalfWidth: number
 ) {
-  const points = profile[profile.length - 1].equals(profile[0]) ? profile.slice(0, -1) : profile
-  const count = points.length
-  const positions = new Float32Array(count * 3)
+  const sourcePoints = profile[profile.length - 1].equals(profile[0]) ? profile.slice(0, -1) : profile
+  const points = invert ? [...sourcePoints].reverse() : sourcePoints
+  const shape = new THREE.Shape(points.map((point) => new THREE.Vector2(point.x, point.y)))
+  const capGeometry = new THREE.ShapeGeometry(shape)
+  const position = capGeometry.getAttribute("position") as THREE.BufferAttribute
+  const radial = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle))
   const tangent = new THREE.Vector3(-Math.sin(angle), 0, Math.cos(angle))
 
-  for (let i = 0; i < count; i += 1) {
-    const point = points[i]
-    const baseX = Math.cos(angle) * point.x
-    const baseZ = Math.sin(angle) * point.x
-    const slopeOffset = tangent.clone().multiplyScalar((point.y / bandHalfWidth) * slope)
+  for (let i = 0; i < position.count; i += 1) {
+    const radius = position.getX(i)
+    const y = position.getY(i)
+    const slopeOffset = slope === 0 ? 0 : (y / bandHalfWidth) * slope
 
-    positions[i * 3 + 0] = baseX + slopeOffset.x
-    positions[i * 3 + 1] = point.y
-    positions[i * 3 + 2] = baseZ + slopeOffset.z
+    position.setXYZ(
+      i,
+      radial.x * radius + tangent.x * slopeOffset,
+      y,
+      radial.z * radius + tangent.z * slopeOffset
+    )
   }
 
-  const indices = new Uint32Array((count - 2) * 3)
-  for (let i = 0; i < count - 2; i += 1) {
-    if (invert) {
-      indices[i * 3 + 0] = 0
-      indices[i * 3 + 1] = i + 2
-      indices[i * 3 + 2] = i + 1
-    } else {
-      indices[i * 3 + 0] = 0
-      indices[i * 3 + 1] = i + 1
-      indices[i * 3 + 2] = i + 2
-    }
-  }
-
-  const capGeometry = new THREE.BufferGeometry()
-  capGeometry.setAttribute("position", new THREE.BufferAttribute(positions, 3))
-  capGeometry.setIndex(new THREE.BufferAttribute(indices, 1))
+  capGeometry.deleteAttribute("normal")
+  position.needsUpdate = true
   capGeometry.computeVertexNormals()
   return capGeometry
 }
@@ -421,9 +418,32 @@ function createLatheGeometry(
   profile: THREE.Vector2[],
   style: StyleId,
   styleSettings: StyleSettings,
-  bandHalfWidth: number
+  bandHalfWidth: number,
+  reducedDetail = false
 ) {
-  const segments = style === "faceted" ? 64 : style === "open" || style === "diagonal" ? 224 : 384
+  const facetedSegments =
+    styleSettings.facetedCount === "subtle"
+      ? reducedDetail
+        ? 24
+        : 32
+      : styleSettings.facetedCount === "bold"
+      ? reducedDetail
+        ? 10
+        : 14
+      : reducedDetail
+      ? 16
+      : 20
+  const segments = reducedDetail
+    ? style === "faceted"
+      ? facetedSegments
+      : style === "open" || style === "diagonal"
+      ? 128
+      : 192
+    : style === "faceted"
+    ? facetedSegments
+    : style === "open" || style === "diagonal"
+    ? 224
+    : 384
   let phiLength = Math.PI * 2
   let phiStart = Math.PI * 1.16
   let capSlope = 0
@@ -451,17 +471,33 @@ function createLatheGeometry(
         ? Math.PI * 1.45
         : Math.PI * 1.68
     phiStart = Math.PI * 1.16
-    capSlope = 0.06
+    capSlope = styleSettings.diagonalEdgeTreatment === "razor" ? 0.09 : 0.06
   }
 
   const geometry = new THREE.LatheGeometry(profile, segments, phiStart, phiLength)
 
   if (style === "open" || style === "diagonal") {
-    const capA = createEndCapGeometry(profile, phiStart, false, style === "diagonal" ? capSlope : 0, bandHalfWidth)
-    const capB = createEndCapGeometry(profile, phiStart + phiLength, true, style === "diagonal" ? -capSlope : 0, bandHalfWidth)
+    const diagonalSlopeSign = styleSettings.diagonalDirection === "leftRising" ? -1 : 1
+    const startSlope = style === "diagonal" ? diagonalSlopeSign * capSlope : 0
+    const endSlope = style === "diagonal" ? -diagonalSlopeSign * capSlope : 0
+    const capA = createEndCapGeometry(profile, phiStart, false, startSlope, bandHalfWidth)
+    const capB = createEndCapGeometry(profile, phiStart + phiLength, true, endSlope, bandHalfWidth)
+    geometry.deleteAttribute("uv")
+    capA.deleteAttribute("uv")
+    capB.deleteAttribute("uv")
+
     const merged = mergeGeometries([geometry, capA, capB], false)
-    merged.computeVertexNormals()
-    return merged
+    capA.dispose()
+    capB.dispose()
+
+    if (merged) {
+      geometry.dispose()
+      merged.computeVertexNormals()
+      return merged
+    }
+
+    geometry.computeVertexNormals()
+    return geometry
   }
 
   geometry.computeVertexNormals()
@@ -509,7 +545,8 @@ function createOuterStripGeometry(
   yMax: number,
   thickness: number,
   style: StyleId,
-  styleSettings: StyleSettings
+  styleSettings: StyleSettings,
+  reducedDetail = false
 ) {
   const profile = [
     new THREE.Vector2(outerRadius - thickness, yMin),
@@ -519,17 +556,18 @@ function createOuterStripGeometry(
     new THREE.Vector2(outerRadius - thickness, yMin),
   ]
 
-  return createLatheGeometry(profile, style, styleSettings, Math.max(Math.abs(yMin), Math.abs(yMax)))
+  return createLatheGeometry(profile, style, styleSettings, Math.max(Math.abs(yMin), Math.abs(yMax)), reducedDetail)
 }
 
-function createSoftWindowTexture(theme: ThemeMode) {
+function createSoftWindowTexture(theme: ThemeMode, reducedDetail = false) {
   const canvas = document.createElement("canvas")
-  canvas.width = 1024
-  canvas.height = 1024
+  const canvasSize = reducedDetail ? 768 : 1024
+  canvas.width = canvasSize
+  canvas.height = canvasSize
   const ctx = canvas.getContext("2d")
   if (!ctx) return null
 
-  const bg = ctx.createLinearGradient(0, 0, 0, 1024)
+  const bg = ctx.createLinearGradient(0, 0, 0, canvasSize)
   if (theme === "dark") {
     bg.addColorStop(0, "#221e1a")
     bg.addColorStop(0.55, "#191613")
@@ -540,7 +578,7 @@ function createSoftWindowTexture(theme: ThemeMode) {
     bg.addColorStop(1, "#eee8df")
   }
   ctx.fillStyle = bg
-  ctx.fillRect(0, 0, 1024, 1024)
+  ctx.fillRect(0, 0, canvasSize, canvasSize)
 
   ctx.filter = "blur(48px)"
 
@@ -572,6 +610,7 @@ function Ring({
   finish,
   previewRotation = [0.7, 0.2, 0],
   styleSettings,
+  reducedDetail = false,
 }: {
   size: number
   width: number
@@ -579,10 +618,11 @@ function Ring({
   finish: FinishId
   previewRotation?: [number, number, number]
   styleSettings: StyleSettings
+  reducedDetail?: boolean
 }) {
   const selectedFinish = finishes.find((item) => item.id === finish) ?? finishes[0]
 
-  const { geometry, grooveGeometries, woodInlayGeometry, woodSleeveGeometry, diagonalGeometry } = useMemo(() => {
+  const { geometry, grooveGeometries, woodInlayGeometry, woodSleeveGeometry } = useMemo(() => {
     const innerRadius = size / 20
     const bandHalfWidth = width * 0.045
 
@@ -591,17 +631,23 @@ function Ring({
 
     const outerRadius = innerRadius + wallThickness
     const profile = buildProfile(style, innerRadius, outerRadius, bandHalfWidth, wallThickness)
-    const baseGeometry = createLatheGeometry(profile, style, styleSettings, bandHalfWidth)
-    const geometry =
-      style === "hammered"
-        ? createHammeredGeometry(
-            baseGeometry,
-            styleSettings.hammeredIntensity,
-            styleSettings.hammeredScale,
-            innerRadius,
-            outerRadius
-          )
-        : baseGeometry
+    const baseGeometry = createLatheGeometry(profile, style, styleSettings, bandHalfWidth, reducedDetail)
+    let geometry = baseGeometry
+
+    if (style === "hammered") {
+      geometry = createHammeredGeometry(
+        baseGeometry,
+        styleSettings.hammeredIntensity,
+        styleSettings.hammeredScale,
+        innerRadius,
+        outerRadius
+      )
+    }
+
+    if (style === "faceted" && styleSettings.facetedSharpness === "crisp") {
+      geometry = baseGeometry.index ? baseGeometry.toNonIndexed() : baseGeometry.clone()
+      geometry.computeVertexNormals()
+    }
 
     const grooveOffsets =
       styleSettings.groovedCount === "single"
@@ -627,7 +673,8 @@ function Ring({
               bandHalfWidth * offset + grooveHeight,
               grooveWidth,
               style,
-              styleSettings
+              styleSettings,
+              reducedDetail
             )
           )
         : []
@@ -653,7 +700,8 @@ function Ring({
             woodInlayWidth,
             0.007,
             style,
-            styleSettings
+            styleSettings,
+            reducedDetail
           )
         : null
 
@@ -671,29 +719,12 @@ function Ring({
             bandHalfWidth - 0.01,
             sleeveThickness,
             style,
-            styleSettings
+            styleSettings,
+            reducedDetail
           )
         : null
 
-    const diagonalHeight =
-      styleSettings.diagonalGapWidth === "subtle"
-        ? bandHalfWidth * 0.08
-        : styleSettings.diagonalGapWidth === "bold"
-        ? bandHalfWidth * 0.18
-        : bandHalfWidth * 0.12
-    const diagonalGeometry =
-      style === "diagonal"
-        ? createOuterStripGeometry(
-            outerRadius + 0.003,
-            -diagonalHeight,
-            diagonalHeight,
-            0.006,
-            style,
-            styleSettings
-          )
-        : null
-
-    if (style === "hammered") {
+    if (geometry !== baseGeometry) {
       baseGeometry.dispose()
     }
 
@@ -702,9 +733,8 @@ function Ring({
       grooveGeometries,
       woodInlayGeometry,
       woodSleeveGeometry,
-      diagonalGeometry,
     }
-  }, [size, width, style, styleSettings])
+  }, [size, width, style, styleSettings, reducedDetail])
 
   useEffect(() => {
     return () => {
@@ -718,6 +748,7 @@ function Ring({
   const isWoodSleeve = style === "woodSleeve"
   const isBrushed = finish === "brushed"
   const isPolished = finish === "polished"
+  const isFacetedCrisp = style === "faceted" && styleSettings.facetedSharpness === "crisp"
 
   const mainColour = selectedFinish.colour
   const mainMetalness = selectedFinish.metalness ?? 0.88
@@ -738,6 +769,7 @@ function Ring({
           anisotropyRotation={Math.PI / 2}
           sheen={selectedFinish.sheen ?? 0}
           sheenRoughness={0.52}
+          flatShading={isFacetedCrisp}
         />
       </mesh>
 
@@ -759,20 +791,6 @@ function Ring({
           <meshStandardMaterial color={styleSettings.woodSleeveWoodType === "oak" ? "#b47f54" : styleSettings.woodSleeveWoodType === "ebony" ? "#231f20" : styleSettings.woodSleeveWoodType === "maple" ? "#d9b58f" : "#8a5a32"} metalness={0.02} roughness={0.54} envMapIntensity={0.62} />
         </mesh>
       )}
-
-      {style === "diagonal" && diagonalGeometry && (
-        <mesh
-          geometry={diagonalGeometry}
-          rotation={[0, styleSettings.diagonalDirection === "leftRising" ? -0.18 : 0.18, 0]}
-        >
-          <meshStandardMaterial
-            color="#17191d"
-            metalness={styleSettings.diagonalEdgeTreatment === "razor" ? 0.68 : 0.5}
-            roughness={styleSettings.diagonalEdgeTreatment === "razor" ? 0.28 : 0.4}
-            envMapIntensity={1.1}
-          />
-        </mesh>
-      )}
     </group>
   )
 }
@@ -790,8 +808,8 @@ function FixedCamera({ position, up }: { position: [number, number, number]; up:
   return null
 }
 
-function SoftWindowBackdrop({ theme }: { theme: ThemeMode }) {
-  const texture = useMemo(() => createSoftWindowTexture(theme), [theme])
+function SoftWindowBackdrop({ theme, reducedDetail }: { theme: ThemeMode; reducedDetail: boolean }) {
+  const texture = useMemo(() => createSoftWindowTexture(theme, reducedDetail), [theme, reducedDetail])
 
   useEffect(() => {
     return () => texture?.dispose()
@@ -814,6 +832,7 @@ function GroundedHeroRing({
   finish,
   heroRotation,
   styleSettings,
+  reducedDetail,
 }: {
   ringSize: number
   bandWidth: number
@@ -821,6 +840,7 @@ function GroundedHeroRing({
   finish: FinishId
   heroRotation: [number, number, number]
   styleSettings: StyleSettings
+  reducedDetail: boolean
 }) {
   const groupRef = useRef<THREE.Group>(null)
   const [groundOffset, setGroundOffset] = useState(0)
@@ -842,7 +862,7 @@ function GroundedHeroRing({
 
   return (
     <group ref={groupRef} position={[0.02, -0.06 + groundOffset, 0]} rotation={heroRotation} scale={0.52}>
-      <Ring size={ringSize} width={bandWidth} style={style} finish={finish} previewRotation={[0, 0, 0]} styleSettings={styleSettings} />
+      <Ring size={ringSize} width={bandWidth} style={style} finish={finish} previewRotation={[0, 0, 0]} styleSettings={styleSettings} reducedDetail={reducedDetail} />
     </group>
   )
 }
@@ -899,6 +919,7 @@ function OrthoView({
   language,
   styleSettings,
   theme,
+  reducedDetail,
   className,
 }: {
   title: string
@@ -912,12 +933,14 @@ function OrthoView({
   language: Language
   styleSettings: StyleSettings
   theme: ThemeMode
+  reducedDetail: boolean
   className?: string
 }) {
   const orthoBackground = theme === "dark" ? "#141210" : "#f4f1ec"
   const gridMain = theme === "dark" ? "#3d3732" : "#d8d0c6"
   const gridSoft = theme === "dark" ? "#221e1b" : "#e8e2da"
   const hemiGround = theme === "dark" ? "#090807" : "#271d16"
+  const zoom = kind === "top" ? 56 / (ringSize / 18) : 60 / (ringSize / 18)
 
   return (
     <section className={`ortho-card ${className ?? ""}`.trim()} aria-label={title}>
@@ -925,14 +948,15 @@ function OrthoView({
       <DimensionOverlay kind={kind} ringSize={ringSize} bandWidth={bandWidth} language={language} />
 
       <Canvas
+        frameloop="demand"
         orthographic
         camera={{
-          zoom: kind === "top" ? 72 / (ringSize / 18) : 88 / (ringSize / 18),
+          zoom,
           position: cameraPosition,
           near: 0.1,
           far: 100,
         }}
-        dpr={[1, 1.5]}
+        dpr={reducedDetail ? [1, 1.25] : [1, 1.5]}
         shadows
       >
         <FixedCamera position={cameraPosition} up={cameraUp} />
@@ -941,8 +965,12 @@ function OrthoView({
         <hemisphereLight args={["#fff1dc", hemiGround, theme === "dark" ? 0.82 : 0.65]} />
         <directionalLight position={[3, 5, 4]} intensity={1.5} color="#fff4e3" />
         <directionalLight position={[-4, 1, 2]} intensity={1.1} color="#d8e1f2" />
-        <gridHelper args={[4, 12, gridMain, gridSoft]} />
-        <Ring size={ringSize} width={bandWidth} style={style} finish={finish} previewRotation={[0, 0, 0]} styleSettings={styleSettings} />
+        {kind === "top" ? (
+          <gridHelper args={[4, 12, gridMain, gridSoft]} />
+        ) : (
+          <gridHelper args={[4, 12, gridMain, gridSoft]} rotation={[Math.PI / 2, 0, 0]} position={[0, 0, -0.16]} />
+        )}
+        <Ring size={ringSize} width={bandWidth} style={style} finish={finish} previewRotation={[0, 0, 0]} styleSettings={styleSettings} reducedDetail={reducedDetail} />
       </Canvas>
     </section>
   )
@@ -956,6 +984,7 @@ function StudioScene({
   heroRotation,
   styleSettings,
   theme,
+  reducedDetail,
 }: {
   ringSize: number
   bandWidth: number
@@ -964,6 +993,7 @@ function StudioScene({
   heroRotation: [number, number, number]
   styleSettings: StyleSettings
   theme: ThemeMode
+  reducedDetail: boolean
 }) {
   const heroBackground = theme === "dark" ? "#161311" : "#f4f1ec"
   const heroFog = theme === "dark" ? "#161311" : "#f4f1ec"
@@ -975,7 +1005,7 @@ function StudioScene({
       <color attach="background" args={[heroBackground]} />
       <fog attach="fog" args={[heroFog, 6, 12]} />
 
-      <Environment background={false} resolution={2048}>
+      <Environment background={false} resolution={reducedDetail ? 512 : 2048}>
         <Lightformer form="rect" intensity={8} color="#ffffff" scale={[14, 9, 1]} position={[0, 0.8, 4.2]} rotation={[0, Math.PI, 0]} />
         <Lightformer form="rect" intensity={6} color="#f7f4ee" scale={[8, 3.5, 1]} position={[0, 1.65, 3.2]} rotation={[0.12, Math.PI, 0]} />
         <Lightformer form="rect" intensity={9} color="#ffffff" scale={[0.75, 7, 1]} position={[-1.05, 0.55, 2.4]} rotation={[0, Math.PI / 10, 0]} />
@@ -986,7 +1016,7 @@ function StudioScene({
       <ambientLight intensity={theme === "dark" ? 0.5 : 0.4} color="#ffffff" />
       <hemisphereLight args={["#ffffff", theme === "dark" ? "#2a241f" : "#e6dfd6", theme === "dark" ? 0.92 : 0.75]} />
 
-      <SoftWindowBackdrop theme={theme} />
+      <SoftWindowBackdrop theme={theme} reducedDetail={reducedDetail} />
 
       <GroundedHeroRing
         ringSize={ringSize}
@@ -995,13 +1025,14 @@ function StudioScene({
         finish={finish}
         heroRotation={heroRotation}
         styleSettings={styleSettings}
+        reducedDetail={reducedDetail}
       />
 
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, HERO_FLOOR_Y, 0]} receiveShadow>
         <planeGeometry args={[22, 22]} />
         <MeshReflectorMaterial
           blur={[360, 110]}
-          resolution={2048}
+          resolution={reducedDetail ? 1024 : 2048}
           mirror={theme === "dark" ? 0.42 : 0.68}
           mixBlur={1.2}
           mixStrength={theme === "dark" ? 1.35 : 1.95}
@@ -1023,7 +1054,7 @@ function StudioScene({
         blur={4.4}
         far={2.4}
         color={contactShadowColor}
-        resolution={1024}
+        resolution={reducedDetail ? 512 : 1024}
       />
     </>
   )
@@ -1091,6 +1122,7 @@ function App() {
   const [statusMessage, setStatusMessage] = useState("")
   const [submitState, setSubmitState] = useState<SubmitState>("idle")
   const [autoRotate, setAutoRotate] = useState(false)
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null)
   const [isMobileLayout, setIsMobileLayout] = useState(() => {
     if (typeof window === "undefined") return false
     return window.innerWidth <= 768
@@ -1122,12 +1154,9 @@ function App() {
     designSection: language === "en" ? "Design" : "Design",
     surfaceSection: language === "en" ? "Surface" : "Oberfläche",
     actionSection: language === "en" ? "Actions" : "Aktionen",
-    save: language === "en" ? "Save" : "Speichern",
-    load: language === "en" ? "Load" : "Laden",
     reset: language === "en" ? "Reset" : "Zurücksetzen",
-    download: language === "en" ? "Download JSON" : "JSON herunterladen",
     submit: language === "en" ? "Submit Configuration" : "Konfiguration senden",
-    copy: language === "en" ? "Copy Config" : "Konfiguration kopieren",
+    share: language === "en" ? "Share" : "Teilen",
     summary: language === "en" ? "Summary" : "Zusammenfassung",
     styleOptionsSection: language === "en" ? "Style options" : "Stiloptionen",
     grooveCount: language === "en" ? "Groove count" : "Anzahl der Rillen",
@@ -1176,11 +1205,26 @@ function App() {
     return () => mediaQuery.removeEventListener("change", updateLayoutMode)
   }, [])
 
+  useEffect(() => {
+    if (!confirmAction) return
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setConfirmAction(null)
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [confirmAction])
+
   const selectedStyle = styles.find((item) => item.id === style) ?? styles[0]
   const selectedFinish = finishes.find((item) => item.id === finish) ?? finishes[0]
   const circumference = Math.PI * ringSize
-  const heroCamera = isMobileLayout ? { position: [0, 0.2, 5.2] as [number, number, number], fov: 31 } : { position: [0, 0.28, 7.45] as [number, number, number], fov: 27 }
-  const heroTarget: [number, number, number] = isMobileLayout ? [0.02, -0.12, 0] : [0.02, -0.12, 0]
+  const reducedDetail = isMobileLayout
+  const heroCamera = isMobileLayout ? { position: [0, 0.1, 4.4] as [number, number, number], fov: 27 } : { position: [0, 0.28, 7.45] as [number, number, number], fov: 27 }
+  const heroTarget: [number, number, number] = isMobileLayout ? [0.02, -0.02, 0] : [0.02, -0.12, 0]
+  const heroDpr: [number, number] = isMobileLayout ? [1, 1.25] : [1, 1.75]
 
   const styleSettings: StyleSettings = {
     groovedCount,
@@ -1244,77 +1288,6 @@ function App() {
     language === "en" ? selectedFinish.en : selectedFinish.de,
   ].join(" · ")
 
-  function saveConfig() {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        language,
-        ringSize,
-        bandWidth,
-        style,
-        finish,
-        name,
-        groovedCount,
-        groovedDepth,
-        groovedWidth,
-        facetedCount,
-        facetedSharpness,
-        hammeredIntensity,
-        hammeredScale,
-        openGapWidth,
-        openEdgeTreatment,
-        diagonalGapWidth,
-        diagonalDirection,
-        diagonalEdgeTreatment,
-        woodSleeveWoodType,
-        woodSleeveThickness,
-        woodInlayWoodType,
-        woodInlayWidth,
-        woodInlayDepth,
-      })
-    )
-    setStatusMessage(language === "en" ? "Configuration saved." : "Konfiguration gespeichert.")
-  }
-
-  function loadConfig() {
-    const saved = localStorage.getItem(STORAGE_KEY)
-    if (!saved) {
-      setStatusMessage(language === "en" ? "No saved configuration found." : "Keine gespeicherte Konfiguration gefunden.")
-      return
-    }
-
-    try {
-      const nextConfig = normaliseConfig(JSON.parse(saved) as StoredConfig)
-      setLanguage(nextConfig.language)
-      setRingSize(nextConfig.ringSize)
-      setBandWidth(nextConfig.bandWidth)
-      setStyle(nextConfig.style)
-      setFinish(nextConfig.finish)
-      setGroovedCount(nextConfig.groovedCount)
-      setGroovedDepth(nextConfig.groovedDepth)
-      setGroovedWidth(nextConfig.groovedWidth)
-      setFacetedCount(nextConfig.facetedCount)
-      setFacetedSharpness(nextConfig.facetedSharpness)
-      setHammeredIntensity(nextConfig.hammeredIntensity)
-      setHammeredScale(nextConfig.hammeredScale)
-      setOpenGapWidth(nextConfig.openGapWidth)
-      setOpenEdgeTreatment(nextConfig.openEdgeTreatment)
-      setDiagonalGapWidth(nextConfig.diagonalGapWidth)
-      setDiagonalDirection(nextConfig.diagonalDirection)
-      setDiagonalEdgeTreatment(nextConfig.diagonalEdgeTreatment)
-      setWoodSleeveWoodType(nextConfig.woodSleeveWoodType)
-      setWoodSleeveThickness(nextConfig.woodSleeveThickness)
-      setWoodInlayWoodType(nextConfig.woodInlayWoodType)
-      setWoodInlayWidth(nextConfig.woodInlayWidth)
-      setWoodInlayDepth(nextConfig.woodInlayDepth)
-      setName(nextConfig.name)
-      setStatusMessage(nextConfig.language === "en" ? "Configuration loaded." : "Konfiguration geladen.")
-    } catch {
-      localStorage.removeItem(STORAGE_KEY)
-      setStatusMessage(language === "en" ? "Saved configuration was invalid and has been removed." : "Die gespeicherte Konfiguration war ungültig und wurde entfernt.")
-    }
-  }
-
   function resetConfig() {
     setRingSize(DEFAULT_CONFIG.ringSize)
     setBandWidth(DEFAULT_CONFIG.bandWidth)
@@ -1339,30 +1312,6 @@ function App() {
     setWoodInlayDepth(DEFAULT_CONFIG.woodInlayDepth)
     setName(getDefaultName(language))
     setStatusMessage(language === "en" ? "Configuration reset." : "Konfiguration zurückgesetzt.")
-  }
-
-  function downloadJson() {
-    const blob = new Blob([JSON.stringify(config, null, 2)], { type: "application/json" })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement("a")
-    const fileNameBase = (name.trim() || getDefaultName(language)).replace(/\s+/g, "-").toLowerCase()
-
-    link.href = url
-    link.download = `${fileNameBase}-ring-config.json`
-    document.body.append(link)
-    link.click()
-    link.remove()
-    URL.revokeObjectURL(url)
-    setStatusMessage(language === "en" ? "JSON downloaded." : "JSON heruntergeladen.")
-  }
-
-  async function copyConfig() {
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(config, null, 2))
-      setStatusMessage(language === "en" ? "Configuration copied." : "Konfiguration kopiert.")
-    } catch {
-      setStatusMessage(language === "en" ? "Clipboard access failed." : "Zugriff auf die Zwischenablage fehlgeschlagen.")
-    }
   }
 
   async function submitConfig() {
@@ -1391,6 +1340,44 @@ function App() {
     } catch {
       setSubmitState("error")
       setStatusMessage(language === "en" ? "Submission failed. Please try again." : "Senden fehlgeschlagen. Bitte erneut versuchen.")
+    }
+  }
+
+  async function shareConfig() {
+    const shareData = {
+      title: name.trim() || getDefaultName(language),
+      text: configSummary,
+      url: typeof window !== "undefined" ? window.location.href : undefined,
+    }
+
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData)
+        setStatusMessage(language === "en" ? "Configuration shared." : "Konfiguration geteilt.")
+        return
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(configSummary)
+      setStatusMessage(language === "en" ? "Summary copied to clipboard." : "Zusammenfassung in die Zwischenablage kopiert.")
+    } catch {
+      setStatusMessage(language === "en" ? "Sharing failed. Please try again." : "Teilen fehlgeschlagen. Bitte erneut versuchen.")
+    }
+  }
+
+  async function confirmAndRunAction() {
+    if (confirmAction === "submit") {
+      setConfirmAction(null)
+      await submitConfig()
+      return
+    }
+
+    if (confirmAction === "reset") {
+      setConfirmAction(null)
+      resetConfig()
     }
   }
 
@@ -1440,15 +1427,7 @@ function App() {
         onClick={() => setTheme((current) => (current === "light" ? "dark" : "light"))}
         aria-label={language === "en" ? "Toggle dark mode" : "Dunkelmodus umschalten"}
       >
-        {theme === "light" ? (
-          <svg aria-hidden="true" viewBox="0 0 24 24" className="topbar-icon">
-            <path fill="currentColor" d="M12 4.75a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0V5.5a.75.75 0 0 1 .75-.75Zm0 10.5a3.25 3.25 0 1 0 0-6.5 3.25 3.25 0 0 0 0 6.5Zm6.25-4a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 0 1.5H19a.75.75 0 0 1-.75-.75Zm-14 0a.75.75 0 0 1 .75-.75H6.5a.75.75 0 0 1 0 1.5H5a.75.75 0 0 1-.75-.75Zm10.2 5.45a.75.75 0 0 1 1.06 0l1.06 1.06a.75.75 0 0 1-1.06 1.06l-1.06-1.06a.75.75 0 0 1 0-1.06Zm-9.9 0a.75.75 0 0 1 1.06 1.06L4.85 18.82a.75.75 0 1 1-1.06-1.06l1.06-1.06Zm11.02-10.96a.75.75 0 0 1 1.06-1.06l1.06 1.06a.75.75 0 1 1-1.06 1.06l-1.06-1.06Zm-9.96 0L4.55 6.8A.75.75 0 0 1 3.49 5.74L4.55 4.68a.75.75 0 0 1 1.06 1.06ZM12 16.25a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0V17a.75.75 0 0 1 .75-.75Z" />
-          </svg>
-        ) : (
-          <svg aria-hidden="true" viewBox="0 0 24 24" className="topbar-icon">
-            <path fill="currentColor" d="M14.77 4.57a.75.75 0 0 1 .23.78 6.74 6.74 0 0 0-.43 2.39A6.75 6.75 0 0 0 21.32 14a6.7 6.7 0 0 0 1.5-.17.75.75 0 0 1 .78 1.14A10.5 10.5 0 1 1 13.63 3.8a.75.75 0 0 1 1.14.77Z" />
-          </svg>
-        )}
+        {theme === "light" ? <MoonStar aria-hidden="true" className="topbar-icon ui-icon" strokeWidth={1.9} /> : <SunMedium aria-hidden="true" className="topbar-icon ui-icon" strokeWidth={1.9} />}
       </button>
       <button
         id={languageButtonId}
@@ -1774,19 +1753,17 @@ function App() {
         </PanelSection>
 
         <PanelSection title={t.actionSection}>
-          <div className="action-cluster">
-            <div className="action-row action-row-primary">
-              <button type="button" className="action-button action-button-emphasis" onClick={() => void submitConfig()} disabled={submitState === "sending"}>{t.submit}</button>
-            </div>
-            <div className="action-row action-row-secondary">
-              <button type="button" className="action-button action-button-primary" onClick={saveConfig}>{t.save}</button>
-              <button type="button" className="action-button action-button-primary" onClick={downloadJson}>{t.download}</button>
-            </div>
-            <div className="action-row action-row-utility">
-              <button type="button" className="action-button action-button-secondary" onClick={loadConfig}>{t.load}</button>
-              <button type="button" className="action-button action-button-secondary" onClick={resetConfig}>{t.reset}</button>
-              <button type="button" className="action-button action-button-secondary" onClick={() => void copyConfig()}>{t.copy}</button>
-            </div>
+          <div className="action-row action-row-primary">
+            <button type="button" className="action-button action-button-emphasis" onClick={() => setConfirmAction("submit")} disabled={submitState === "sending"}>
+              <span className="action-button-content">
+                <SendHorizontal aria-hidden="true" className="button-icon ui-icon" strokeWidth={1.9} />
+                <span>{t.submit}</span>
+              </span>
+            </button>
+            <button type="button" className="action-button action-button-reset" onClick={() => setConfirmAction("reset")}>{t.reset}</button>
+            <button type="button" className="action-button action-button-icon" onClick={() => void shareConfig()} aria-label={language === "en" ? "Share configuration" : "Konfiguration teilen"}>
+              <Share2 aria-hidden="true" className="share-icon ui-icon" strokeWidth={1.9} />
+            </button>
           </div>
         </PanelSection>
 
@@ -1807,8 +1784,8 @@ function App() {
         <div className="preview-stack">
           <section className="main-view-card" aria-label={t.preview}>
             <div className="hero-aspect">
-              <Canvas camera={heroCamera} shadows dpr={[1, 2]}>
-                <StudioScene ringSize={ringSize} bandWidth={bandWidth} style={style} finish={finish} heroRotation={heroRotation} styleSettings={styleSettings} theme={theme} />
+              <Canvas camera={heroCamera} shadows dpr={heroDpr} frameloop={autoRotate ? "always" : "demand"}>
+                <StudioScene ringSize={ringSize} bandWidth={bandWidth} style={style} finish={finish} heroRotation={heroRotation} styleSettings={styleSettings} theme={theme} reducedDetail={reducedDetail} />
                 <OrbitControls
                   key="orbit-controls"
                   enableDamping={false}
@@ -1825,16 +1802,11 @@ function App() {
               </Canvas>
               <button
                 type="button"
-                className="hero-rotate-button"
+                className={`hero-rotate-button${autoRotate ? "" : " is-inactive"}`}
                 onClick={() => setAutoRotate((current) => !current)}
                 aria-label={language === "en" ? "Toggle rotation" : "Rotation umschalten"}
               >
-                <svg aria-hidden="true" viewBox="0 0 24 24" className="hero-rotate-icon">
-                  <path
-                    d="M18.2 8.6A7 7 0 1 0 19 12h-2a5 5 0 1 1-1.4-3.5L13 11h7V4l-1.8 1.8Z"
-                    fill="currentColor"
-                  />
-                </svg>
+                <RotateCcw aria-hidden="true" className="hero-rotate-icon ui-icon" strokeWidth={1.9} />
               </button>
             </div>
           </section>
@@ -1846,12 +1818,63 @@ function App() {
             </div>
 
             <section className="ortho-grid">
-              <OrthoView title={t.topView} kind="top" cameraPosition={[0, 3, 0]} cameraUp={[0, 0, -1]} ringSize={ringSize} bandWidth={bandWidth} style={style} finish={finish} language={language} styleSettings={styleSettings} theme={theme} />
-              <OrthoView title={t.frontView} kind="front" cameraPosition={[0, 0, 3]} cameraUp={[0, 1, 0]} ringSize={ringSize} bandWidth={bandWidth} style={style} finish={finish} language={language} styleSettings={styleSettings} theme={theme} className="ortho-card-front" />
+              <OrthoView title={t.topView} kind="top" cameraPosition={[0, 3, 0]} cameraUp={[0, 0, -1]} ringSize={ringSize} bandWidth={bandWidth} style={style} finish={finish} language={language} styleSettings={styleSettings} theme={theme} reducedDetail={reducedDetail} />
+              <OrthoView title={t.frontView} kind="front" cameraPosition={[0, 0, 3]} cameraUp={[0, 1, 0]} ringSize={ringSize} bandWidth={bandWidth} style={style} finish={finish} language={language} styleSettings={styleSettings} theme={theme} reducedDetail={reducedDetail} className="ortho-card-front" />
             </section>
           </section>
         </div>
       </main>
+
+      {confirmAction && (
+        <div
+          className="modal-overlay"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setConfirmAction(null)
+            }
+          }}
+        >
+          <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
+            <h2 id="confirm-dialog-title" className="modal-title">
+              {confirmAction === "submit"
+                ? language === "en"
+                  ? "Submit configuration?"
+                  : "Konfiguration senden?"
+                : language === "en"
+                ? "Reset configuration?"
+                : "Konfiguration zurücksetzen?"}
+            </h2>
+            <p className="modal-body">
+              {confirmAction === "submit"
+                ? language === "en"
+                  ? "This will send your current ring configuration to the maker."
+                  : "Deine aktuelle Ringkonfiguration wird an den Hersteller gesendet."
+                : language === "en"
+                ? "This will discard your current settings and restore the default ring."
+                : "Deine aktuellen Einstellungen werden verworfen und der Standardring wird wiederhergestellt."}
+            </p>
+            <div className="modal-actions">
+              <button type="button" className="action-button action-button-secondary" onClick={() => setConfirmAction(null)}>
+                {language === "en" ? "Cancel" : "Abbrechen"}
+              </button>
+              <button
+                type="button"
+                className={`action-button ${confirmAction === "submit" ? "action-button-emphasis" : "action-button-reset"}`}
+                onClick={() => void confirmAndRunAction()}
+              >
+                {confirmAction === "submit"
+                  ? language === "en"
+                    ? "Submit"
+                    : "Senden"
+                  : language === "en"
+                  ? "Reset"
+                  : "Zurücksetzen"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
