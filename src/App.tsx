@@ -1125,8 +1125,10 @@ function GroundedHeroRing({
     }
   }, [ringSize, bandWidth, style, finish, heroRotation, styleSettings, groundOffset])
 
+  const baseY = reducedDetail ? 0.01 : -0.06
+
   return (
-    <group ref={groupRef} position={[0.02, -0.06 + groundOffset, 0]} rotation={heroRotation} scale={0.52}>
+    <group ref={groupRef} position={[0.02, baseY + groundOffset, 0]} rotation={heroRotation} scale={0.52}>
       <Ring size={ringSize} width={bandWidth} style={style} finish={finish} previewRotation={[0, 0, 0]} styleSettings={styleSettings} reducedDetail={reducedDetail} />
     </group>
   )
@@ -1205,7 +1207,7 @@ function OrthoView({
   const gridMain = theme === "dark" ? "#3d3732" : "#d8d0c6"
   const gridSoft = theme === "dark" ? "#221e1b" : "#e8e2da"
   const hemiGround = theme === "dark" ? "#090807" : "#271d16"
-  const zoom = kind === "top" ? 56 / (ringSize / 18) : 60 / (ringSize / 18)
+  const zoom = kind === "top" ? (reducedDetail ? 50 : 54) / (ringSize / 18) : (reducedDetail ? 42 : 46) / (ringSize / 18)
 
   return (
     <section className={`ortho-card ${className ?? ""}`.trim()} aria-label={title}>
@@ -1494,8 +1496,8 @@ function App() {
   const selectedFinish = finishes.find((item) => item.id === finish) ?? finishes[0]
   const circumference = getCircumferenceMm(ringSize)
   const reducedDetail = isMobileLayout
-  const heroCamera = isMobileLayout ? { position: [0, 0.06, 4.2] as [number, number, number], fov: 26 } : { position: [0, 0.28, 7.45] as [number, number, number], fov: 27 }
-  const heroTarget: [number, number, number] = isMobileLayout ? [0.02, 0.02, 0] : [0.02, -0.12, 0]
+  const heroCamera = isMobileLayout ? { position: [0, 0.12, 3.95] as [number, number, number], fov: 24 } : { position: [0, 0.28, 7.45] as [number, number, number], fov: 27 }
+  const heroTarget: [number, number, number] = isMobileLayout ? [0.02, 0.04, 0] : [0.02, -0.12, 0]
   const heroDpr: [number, number] = isMobileLayout ? [1, 1.25] : [1, 1.75]
 
   useEffect(() => {
@@ -1524,15 +1526,30 @@ function App() {
       woodInlayChamfer,
     })
 
-    if (validated.groovedWidthMm !== groovedWidthMm) setGroovedWidthMm(validated.groovedWidthMm)
-    if (validated.groovedDepthMm !== groovedDepthMm) setGroovedDepthMm(validated.groovedDepthMm)
-    if (validated.groovedCount !== groovedCount) setGroovedCount(validated.groovedCount)
-    if (validated.groovedOuterCrestMm !== groovedOuterCrestMm) setGroovedOuterCrestMm(validated.groovedOuterCrestMm)
-    if (validated.facetedCount !== facetedCount) setFacetedCount(validated.facetedCount)
-    if (validated.openOpeningMm !== openOpeningMm) setOpenOpeningMm(validated.openOpeningMm)
-    if (validated.openRoundedEdgeRadiusMm !== openRoundedEdgeRadiusMm) setOpenRoundedEdgeRadiusMm(validated.openRoundedEdgeRadiusMm)
-    if (validated.diagonalOpeningMm !== diagonalOpeningMm) setDiagonalOpeningMm(validated.diagonalOpeningMm)
-    if (validated.woodInlayWidthMm !== woodInlayWidthMm) setWoodInlayWidthMm(validated.woodInlayWidthMm)
+    const hasChanges =
+      validated.groovedWidthMm !== groovedWidthMm ||
+      validated.groovedDepthMm !== groovedDepthMm ||
+      validated.groovedCount !== groovedCount ||
+      validated.groovedOuterCrestMm !== groovedOuterCrestMm ||
+      validated.facetedCount !== facetedCount ||
+      validated.openOpeningMm !== openOpeningMm ||
+      validated.openRoundedEdgeRadiusMm !== openRoundedEdgeRadiusMm ||
+      validated.diagonalOpeningMm !== diagonalOpeningMm ||
+      validated.woodInlayWidthMm !== woodInlayWidthMm
+
+    if (!hasChanges) return
+
+    queueMicrotask(() => {
+      if (validated.groovedWidthMm !== groovedWidthMm) setGroovedWidthMm(validated.groovedWidthMm)
+      if (validated.groovedDepthMm !== groovedDepthMm) setGroovedDepthMm(validated.groovedDepthMm)
+      if (validated.groovedCount !== groovedCount) setGroovedCount(validated.groovedCount)
+      if (validated.groovedOuterCrestMm !== groovedOuterCrestMm) setGroovedOuterCrestMm(validated.groovedOuterCrestMm)
+      if (validated.facetedCount !== facetedCount) setFacetedCount(validated.facetedCount)
+      if (validated.openOpeningMm !== openOpeningMm) setOpenOpeningMm(validated.openOpeningMm)
+      if (validated.openRoundedEdgeRadiusMm !== openRoundedEdgeRadiusMm) setOpenRoundedEdgeRadiusMm(validated.openRoundedEdgeRadiusMm)
+      if (validated.diagonalOpeningMm !== diagonalOpeningMm) setDiagonalOpeningMm(validated.diagonalOpeningMm)
+      if (validated.woodInlayWidthMm !== woodInlayWidthMm) setWoodInlayWidthMm(validated.woodInlayWidthMm)
+    })
   }, [
     language,
     ringSize,
@@ -1582,6 +1599,14 @@ function App() {
   const maxGrooveCount = getMaxGrooveCount(bandWidth, groovedWidthMm, groovedOuterCrestMm)
   const facetedArcLengthMm = circumference / facetedCount
   const diagonalCutAngleDegrees = getDiagonalCutAngleDegrees(diagonalCutAngle)
+  const woodInlayMaxWidthMm = Math.max(2, bandWidth - WOOD_INLAY_EDGE_MM * 2)
+
+  function getWoodTypeLabel(woodType: WoodType) {
+    if (woodType === "oak") return language === "en" ? "Oak" : "Eiche"
+    if (woodType === "ebony") return language === "en" ? "Ebony" : "Ebenholz"
+    if (woodType === "maple") return language === "en" ? "Maple" : "Ahorn"
+    return language === "en" ? "Walnut" : "Walnuss"
+  }
 
   const activeStyleValues = (() => {
     switch (style) {
@@ -1614,13 +1639,54 @@ function App() {
     generatedAt: new Date().toISOString(),
   }
 
+  const styleSummaryParts =
+    style === "grooved"
+      ? [
+          `${formatValue(language, groovedWidthMm)} mm ${language === "en" ? "groove width" : "Rillenbreite"}`,
+          `${formatValue(language, groovedDepthMm)} mm ${language === "en" ? "groove depth" : "Rillentiefe"}`,
+          `${groovedCount} ${language === "en" ? "grooves" : "Rillen"}`,
+          groovedCount > 1 ? `${formatValue(language, groovedOuterCrestMm)} mm ${language === "en" ? "outer crest" : "Außensteg"}` : null,
+        ]
+      : style === "faceted"
+      ? [
+          `${facetedCount} ${language === "en" ? "facets" : "Facetten"}`,
+          `${formatValue(language, facetedArcLengthMm)} mm ${language === "en" ? "per facet" : "pro Facette"}`,
+          facetedEdgeMode === "hard" ? t.facetHard : t.facetSoft,
+        ]
+      : style === "open"
+      ? [
+          `${formatValue(language, openOpeningMm)} mm ${language === "en" ? "opening" : "Öffnung"}`,
+          `${formatValue(language, openRoundedEdgeRadiusMm)} mm ${language === "en" ? "edge radius" : "Rundungsradius"}`,
+        ]
+      : style === "diagonal"
+      ? [
+          `${formatValue(language, diagonalOpeningMm)} mm ${language === "en" ? "opening gap" : "Öffnungsspalt"}`,
+          `${diagonalCutAngleDegrees}°`,
+          diagonalDirection === "leftRising" ? (language === "en" ? "Left rising" : "Links steigend") : language === "en" ? "Right rising" : "Rechts steigend",
+          diagonalEdgeFinish === "softened" ? (language === "en" ? "Softened edge" : "Abgemilderte Kante") : language === "en" ? "Razor edge" : "Scharfe Kante",
+        ]
+      : style === "woodSleeve"
+      ? [
+          getWoodTypeLabel(woodSleeveWoodType),
+          `${formatValue(language, WOOD_SLEEVE_THICKNESS_MM)} mm ${language === "en" ? "outer wood sleeve" : "äußere Holzschicht"}`,
+        ]
+      : style === "woodInlay"
+      ? [
+          getWoodTypeLabel(woodInlayWoodType),
+          `${formatValue(language, woodInlayWidthMm)} mm ${language === "en" ? "inlay width" : "Einlagenbreite"}`,
+          `${formatValue(language, WOOD_INLAY_EDGE_MM)} mm ${language === "en" ? "metal edge" : "Metallrand"}`,
+          woodInlayChamfer ? t.chamferOn : t.chamferOff,
+        ]
+      : []
+
   const configSummary = [
     name.trim() || getDefaultName(language),
     `Ø ${formatValue(language, ringSize)} mm`,
     `${formatValue(language, circumference)} mm ${language === "en" ? "circumference" : "Umfang"}`,
-    `${bandWidth.toFixed(0)} mm ${language === "en" ? "band width" : "Breite"}`,
+    `${formatValue(language, bandWidth)} mm ${language === "en" ? "band width" : "Breite"}`,
     language === "en" ? selectedStyle.en : selectedStyle.de,
     language === "en" ? selectedFinish.en : selectedFinish.de,
+    ...styleSummaryParts.filter(Boolean),
   ].join(" · ")
 
   function resetConfig() {
@@ -1780,36 +1846,36 @@ function App() {
           <p className="subtitle">{t.subtitle}</p>
         </div>
 
-        <div className="status-message" aria-live="polite">
-          {statusMessage}
-        </div>
+        <div className="controls-scroll">
+          <div className="status-message" aria-live="polite">
+            {statusMessage}
+          </div>
 
-        <PanelSection title={t.identitySection}>
+          <PanelSection title={t.identitySection}>
+            <Field label={t.name} htmlFor={nameId}>
+              <input id={nameId} className="field-input" value={name} onChange={(event) => setName(event.target.value)} aria-label={t.name} />
+            </Field>
+          </PanelSection>
 
-          <Field label={t.name} htmlFor={nameId}>
-            <input id={nameId} className="field-input" value={name} onChange={(event) => setName(event.target.value)} aria-label={t.name} />
-          </Field>
-        </PanelSection>
+          <PanelSection title={t.sizeSection}>
+            <Field label={t.size} htmlFor={sizeSelectId}>
+              <select id={sizeSelectId} className="field-input" value={ringSize} onChange={(event) => setRingSize(Number(event.target.value))}>
+                {sizes.map((sizeOption) => (
+                  <option key={sizeOption.diameter} value={sizeOption.diameter}>
+                    {sizeOption.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
 
-        <PanelSection title={t.sizeSection}>
-          <Field label={t.size} htmlFor={sizeSelectId}>
-            <select id={sizeSelectId} className="field-input" value={ringSize} onChange={(event) => setRingSize(Number(event.target.value))}>
-              {sizes.map((sizeOption) => (
-                <option key={sizeOption.diameter} value={sizeOption.diameter}>
-                  {sizeOption.label}
-                </option>
-              ))}
-            </select>
-          </Field>
+            <Field label={`${t.diameter}: ${formatValue(language, ringSize)} mm`} htmlFor={diameterRangeId}>
+              <input id={diameterRangeId} className="range-input" type="range" min="14" max="24" step="0.1" value={ringSize} onChange={(event) => setRingSize(Number(event.target.value))} />
+            </Field>
 
-          <Field label={`${t.diameter}: ${ringSize.toFixed(1)} mm`} htmlFor={diameterRangeId}>
-            <input id={diameterRangeId} className="range-input" type="range" min="14" max="24" step="0.1" value={ringSize} onChange={(event) => setRingSize(Number(event.target.value))} />
-          </Field>
-
-          <Field label={`${t.width}: ${bandWidth.toFixed(0)} mm`} htmlFor={widthRangeId}>
-            <input id={widthRangeId} className="range-input" type="range" min="1" max="10" step="1" value={bandWidth} onChange={(event) => setBandWidth(Number(event.target.value))} />
-          </Field>
-        </PanelSection>
+            <Field label={`${t.width}: ${formatValue(language, bandWidth)} mm`} htmlFor={widthRangeId}>
+              <input id={widthRangeId} className="range-input" type="range" min="1" max="10" step="0.1" value={bandWidth} onChange={(event) => setBandWidth(Number(event.target.value))} />
+            </Field>
+          </PanelSection>
 
         <PanelSection title={t.designSection}>
           <fieldset className="option-group">
@@ -1838,7 +1904,7 @@ function App() {
             <div className="option-group">
               {style === "grooved" && (
                 <>
-                  <Field label={`${t.grooveCount}: ${groovedCount} / ${maxGrooveCount}`} htmlFor={`${styleOptionsGroupId}-grooved-count`}>
+                  <Field label={`${t.grooveCount}: ${groovedCount} / max ${maxGrooveCount}`} htmlFor={`${styleOptionsGroupId}-grooved-count`}>
                     <input
                       id={`${styleOptionsGroupId}-grooved-count`}
                       className="range-input"
@@ -1900,7 +1966,7 @@ function App() {
                       className="range-input"
                       type="range"
                       min="10"
-                      max="20"
+                      max={Math.max(10, Math.min(20, Math.floor(circumference / FACET_MIN_ARC_MM)))}
                       step="1"
                       value={facetedCount}
                       onChange={(event) => setFacetedCount(Number(event.target.value))}
@@ -1930,7 +1996,7 @@ function App() {
                       className="range-input"
                       type="range"
                       min="3"
-                      max="8"
+                      max={Math.min(8, circumference * 0.25)}
                       step="0.1"
                       value={openOpeningMm}
                       onChange={(event) => setOpenOpeningMm(Number(event.target.value))}
@@ -1959,7 +2025,7 @@ function App() {
                       className="range-input"
                       type="range"
                       min="3"
-                      max="8"
+                      max={Math.min(8, circumference * 0.25)}
                       step="0.1"
                       value={diagonalOpeningMm}
                       onChange={(event) => setDiagonalOpeningMm(Number(event.target.value))}
@@ -2041,10 +2107,10 @@ function App() {
                       id={`${styleOptionsGroupId}-wood-inlay-width`}
                       className="range-input"
                       type="range"
-                      min={Math.min(2, woodInlayWidthMm)}
-                      max={Math.max(2, bandWidth - 2)}
+                      min="2"
+                      max={woodInlayMaxWidthMm}
                       step="0.1"
-                      value={woodInlayWidthMm}
+                      value={Math.min(woodInlayWidthMm, woodInlayMaxWidthMm)}
                       onChange={(event) => setWoodInlayWidthMm(Number(event.target.value))}
                     />
                   </Field>
@@ -2106,13 +2172,14 @@ function App() {
           <strong>{t.summary}</strong>
           <dl className="summary-list">
             <div className="summary-row"><dt>{language === "en" ? "Ring" : "Ring"}</dt><dd>{name}</dd></div>
-            <div className="summary-row"><dt>{t.diameter}</dt><dd>{ringSize.toFixed(1)} mm</dd></div>
-            <div className="summary-row"><dt>{t.circumference}</dt><dd>{circumference.toFixed(1)} mm</dd></div>
-            <div className="summary-row"><dt>{t.width}</dt><dd>{bandWidth.toFixed(0)} mm</dd></div>
+            <div className="summary-row"><dt>{t.diameter}</dt><dd>{formatValue(language, ringSize)} mm</dd></div>
+            <div className="summary-row"><dt>{t.circumference}</dt><dd>{formatValue(language, circumference)} mm</dd></div>
+            <div className="summary-row"><dt>{t.width}</dt><dd>{formatValue(language, bandWidth)} mm</dd></div>
             <div className="summary-row"><dt>{t.style}</dt><dd>{language === "en" ? selectedStyle.en : selectedStyle.de}</dd></div>
             <div className="summary-row"><dt>{t.finish}</dt><dd>{language === "en" ? selectedFinish.en : selectedFinish.de}</dd></div>
           </dl>
         </section>
+        </div>
       </aside>
 
       <main className="app-main">
@@ -2159,7 +2226,7 @@ function App() {
             </section>
           </section>
         </div>
-      </div>
+        </div>
       </main>
 
       {confirmAction && (
