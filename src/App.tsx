@@ -1061,6 +1061,10 @@ function App() {
   const [statusMessage, setStatusMessage] = useState("")
   const [submitState, setSubmitState] = useState<SubmitState>("idle")
   const [autoRotate, setAutoRotate] = useState(false)
+  const [isMobileLayout, setIsMobileLayout] = useState(() => {
+    if (typeof window === "undefined") return false
+    return window.innerWidth <= 768
+  })
 
   const heroRotation: [number, number, number] = DEFAULT_HERO_ROTATION
 
@@ -1124,9 +1128,23 @@ function App() {
     document.title = t.title
   }, [language, t.title])
 
+  useEffect(() => {
+    if (typeof window === "undefined") return
+
+    const mediaQuery = window.matchMedia("(max-width: 768px)")
+    const updateLayoutMode = () => setIsMobileLayout(mediaQuery.matches)
+
+    updateLayoutMode()
+    mediaQuery.addEventListener("change", updateLayoutMode)
+
+    return () => mediaQuery.removeEventListener("change", updateLayoutMode)
+  }, [])
+
   const selectedStyle = styles.find((item) => item.id === style) ?? styles[0]
   const selectedFinish = finishes.find((item) => item.id === finish) ?? finishes[0]
   const circumference = Math.PI * ringSize
+  const heroCamera = isMobileLayout ? { position: [0, 0.22, 5.6] as [number, number, number], fov: 32 } : { position: [0, 0.28, 7.45] as [number, number, number], fov: 27 }
+  const heroTarget: [number, number, number] = isMobileLayout ? [0.02, -0.12, 0] : [0.02, -0.12, 0]
 
   const styleSettings: StyleSettings = {
     groovedCount,
@@ -1731,7 +1749,7 @@ function App() {
         <div className="preview-stack">
           <section className="main-view-card" aria-label={t.preview}>
             <div className="hero-aspect">
-              <Canvas camera={{ position: [0, 0.28, 7.45], fov: 27 }} shadows dpr={[1, 2]}>
+              <Canvas camera={heroCamera} shadows dpr={[1, 2]}>
                 <StudioScene ringSize={ringSize} bandWidth={bandWidth} style={style} finish={finish} heroRotation={heroRotation} styleSettings={styleSettings} />
                 <OrbitControls
                   key="orbit-controls"
@@ -1740,9 +1758,9 @@ function App() {
                   enablePan={false}
                   autoRotate={autoRotate}
                   autoRotateSpeed={0.7}
-                  target={[0.02, -0.12, 0]}
-                  minDistance={4.2}
-                  maxDistance={7.5}
+                  target={heroTarget}
+                  minDistance={isMobileLayout ? 3.8 : 4.2}
+                  maxDistance={isMobileLayout ? 6.2 : 7.5}
                   minPolarAngle={Math.PI / 3.2}
                   maxPolarAngle={Math.PI / 1.95}
                 />
