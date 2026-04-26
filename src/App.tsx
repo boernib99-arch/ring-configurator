@@ -136,7 +136,12 @@ type StyleSettings = {
   woodInlayDepth: InlayDepth
 }
 
+type SubmitState = "idle" | "sending" | "success" | "error"
+
 const STORAGE_KEY = "ring-config"
+const ACCESS_KEY = "ring-config-access"
+const ACCESS_CODE = "4827"
+const FORMSPREE_ENDPOINT = "https://formspree.io/f/mzdywkpb"
 
 const DEFAULT_CONFIG: AppConfig = {
   language: "en",
@@ -1024,6 +1029,12 @@ function PanelSection({ title, children }: { title: string; children: ReactNode 
 
 function App() {
   const [initialConfig] = useState<AppConfig>(() => getInitialConfig())
+  const [accessGranted, setAccessGranted] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false
+    return window.localStorage.getItem(ACCESS_KEY) === "granted"
+  })
+  const [accessInput, setAccessInput] = useState("")
+  const [accessError, setAccessError] = useState("")
   const [language, setLanguage] = useState<Language>(initialConfig.language)
   const [ringSize, setRingSize] = useState(initialConfig.ringSize)
   const [bandWidth, setBandWidth] = useState(initialConfig.bandWidth)
@@ -1048,6 +1059,7 @@ function App() {
   const [woodInlayWidth, setWoodInlayWidth] = useState<InlayWidth>(initialConfig.woodInlayWidth)
   const [woodInlayDepth, setWoodInlayDepth] = useState<InlayDepth>(initialConfig.woodInlayDepth)
   const [statusMessage, setStatusMessage] = useState("")
+  const [submitState, setSubmitState] = useState<SubmitState>("idle")
   const [autoRotate, setAutoRotate] = useState(false)
 
   const heroRotation: [number, number, number] = DEFAULT_HERO_ROTATION
@@ -1080,6 +1092,7 @@ function App() {
     load: language === "en" ? "Load" : "Laden",
     reset: language === "en" ? "Reset" : "Zurücksetzen",
     download: language === "en" ? "Download JSON" : "JSON herunterladen",
+    submit: language === "en" ? "Submit Configuration" : "Konfiguration senden",
     copy: language === "en" ? "Copy Config" : "Konfiguration kopieren",
     summary: language === "en" ? "Summary" : "Zusammenfassung",
     styleOptionsSection: language === "en" ? "Style options" : "Stiloptionen",
@@ -1167,6 +1180,15 @@ function App() {
     ...activeStyleValues,
     generatedAt: new Date().toISOString(),
   }
+
+  const configSummary = [
+    name.trim() || getDefaultName(language),
+    `${ringSize.toFixed(1)} mm Ø`,
+    `${circumference.toFixed(1)} mm ${language === "en" ? "circumference" : "Umfang"}`,
+    `${bandWidth.toFixed(0)} mm ${language === "en" ? "band width" : "Breite"}`,
+    language === "en" ? selectedStyle.en : selectedStyle.de,
+    language === "en" ? selectedFinish.en : selectedFinish.de,
+  ].join(" · ")
 
   function saveConfig() {
     localStorage.setItem(
@@ -1287,6 +1309,73 @@ function App() {
     } catch {
       setStatusMessage(language === "en" ? "Clipboard access failed." : "Zugriff auf die Zwischenablage fehlgeschlagen.")
     }
+  }
+
+  async function submitConfig() {
+    setSubmitState("sending")
+    setStatusMessage(language === "en" ? "Sending configuration..." : "Konfiguration wird gesendet...")
+
+    try {
+      const response = await fetch(FORMSPREE_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          ...config,
+          summary: configSummary,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Formspree responded with ${response.status}`)
+      }
+
+      setSubmitState("success")
+      setStatusMessage(language === "en" ? "Configuration submitted." : "Konfiguration gesendet.")
+    } catch {
+      setSubmitState("error")
+      setStatusMessage(language === "en" ? "Submission failed. Please try again." : "Senden fehlgeschlagen. Bitte erneut versuchen.")
+    }
+  }
+
+  function submitAccessCode(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (accessInput === ACCESS_CODE) {
+      window.localStorage.setItem(ACCESS_KEY, "granted")
+      setAccessGranted(true)
+      setAccessError("")
+      return
+    }
+
+    setAccessError("Incorrect access code.")
+  }
+
+  if (!accessGranted) {
+    return (
+      <div className="access-shell">
+        <form className="access-card" onSubmit={submitAccessCode}>
+          <p className="eyebrow">Private preview</p>
+          <h1>Enter access code</h1>
+          <p className="access-copy">Use the shared code to open the configurator.</p>
+          <input
+            className="field-input access-input"
+            type="password"
+            value={accessInput}
+            onChange={(event) => {
+              setAccessInput(event.target.value)
+              if (accessError) setAccessError("")
+            }}
+            aria-label="Access code"
+            autoComplete="current-password"
+          />
+          <button type="submit" className="action-button action-button-primary access-button">Enter</button>
+          <div className="access-error" aria-live="polite">{accessError}</div>
+        </form>
+      </div>
+    )
   }
 
   return (
@@ -1618,6 +1707,7 @@ function App() {
           <div className="action-row">
             <button type="button" className="action-button action-button-primary" onClick={saveConfig}>{t.save}</button>
             <button type="button" className="action-button action-button-primary" onClick={downloadJson}>{t.download}</button>
+            <button type="button" className="action-button action-button-primary" onClick={() => void submitConfig()} disabled={submitState === "sending"}>{t.submit}</button>
             <button type="button" className="action-button action-button-secondary" onClick={loadConfig}>{t.load}</button>
             <button type="button" className="action-button action-button-secondary" onClick={resetConfig}>{t.reset}</button>
             <button type="button" className="action-button action-button-secondary" onClick={() => void copyConfig()}>{t.copy}</button>
