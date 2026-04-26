@@ -287,13 +287,21 @@ button {
 }
 
 .subtitle {
-  margin-top: 14px;
-  margin-bottom: 0;
+  margin-top: 8px;
+  margin-bottom: 12px;
   color: var(--muted);
-  font-size: 12px;
-  line-height: 1.55;
-  max-width: 36ch;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  max-width: 40ch;
   text-wrap: pretty;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
 }
 
 .status-message {
@@ -475,14 +483,19 @@ button {
 }
 
 .style-preview {
-  height: 22px;
-  margin-bottom: 6px;
+  height: 24px;
+  margin-bottom: 8px;
   border-radius: 999px;
   background: var(--style-preview-bg);
-  border: 1px solid var(--style-preview-border);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   position: relative;
   overflow: hidden;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.38);
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.22);
+}
+
+.style-preview::before,
+.style-preview::after {
+  transition: opacity 180ms ease, transform 180ms ease;
 }
 
 .style-preview::before,
@@ -984,19 +997,30 @@ button {
   height: calc(100vh - 48px);
 }
 
+.preview-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--panel-strong);
+  backdrop-filter: blur(14px);
+  padding: 0 0 10px;
+  border-bottom-left-radius: 28px;
+  border-bottom-right-radius: 28px;
+}
+
 .preview-stack {
   min-width: 0;
   min-height: 0;
-  height: 100%;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) 150px;
-  gap: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .main-view-card {
   min-width: 0;
   min-height: clamp(460px, 58vh, 560px);
   overflow: hidden;
+  border-radius: 28px;
 }
 
 .hero-aspect {
@@ -1020,18 +1044,23 @@ button {
 
 .technical-section {
   min-width: 0;
-  min-height: clamp(160px, 22vh, 220px);
   overflow: visible;
   height: auto;
+  margin-top: 8px;
 }
 
 .technical-header {
-  height: 22px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 18px;
+  gap: 12px;
   padding-inline: 2px;
+}
+
+.ortho-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .technical-eyebrow {

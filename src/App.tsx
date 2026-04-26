@@ -39,6 +39,8 @@ type OpenEdgeTreatment = "razor" | "softened" | "rounded"
 type DiagonalGapWidth = "subtle" | "medium" | "bold"
 type DiagonalDirection = "leftRising" | "rightRising"
 type DiagonalEdgeTreatment = "razor" | "softened"
+type FacetedEdgeMode = "soft" | "hard"
+type DiagonalCutAngle = "gentle" | "standard" | "steep"
 type WoodType = "walnut" | "oak" | "ebony" | "maple"
 type SleeveThickness = "slim" | "medium" | "bold"
 type InlayWidth = "narrow" | "medium" | "wide"
@@ -72,23 +74,34 @@ type StoredConfig = {
   style?: StyleId | "flat"
   finish?: FinishId
   name?: string
-  groovedCount?: GrooveCount
-  groovedDepth?: GrooveDepth
-  groovedWidth?: GrooveWidth
-  facetedCount?: FacetCount
+  groovedCount?: GrooveCount | number
+  groovedDepth?: GrooveDepth | number
+  groovedWidth?: GrooveWidth | number
+  groovedWidthMm?: number
+  groovedDepthMm?: number
+  groovedOuterCrestMm?: number
+  facetedCount?: FacetCount | number
   facetedSharpness?: FacetedSharpness
+  facetedEdgeMode?: FacetedEdgeMode
   hammeredIntensity?: HammeredIntensity
   hammeredScale?: HammeredScale
   openGapWidth?: OpenGapWidth
   openEdgeTreatment?: OpenEdgeTreatment
+  openOpeningMm?: number
+  openRoundedEdgeRadiusMm?: number
   diagonalGapWidth?: DiagonalGapWidth
   diagonalDirection?: DiagonalDirection
   diagonalEdgeTreatment?: DiagonalEdgeTreatment
+  diagonalOpeningMm?: number
+  diagonalEdgeFinish?: DiagonalEdgeTreatment
+  diagonalCutAngle?: DiagonalCutAngle | number
   woodSleeveWoodType?: WoodType
   woodSleeveThickness?: SleeveThickness
   woodInlayWoodType?: WoodType
-  woodInlayWidth?: InlayWidth
+  woodInlayWidth?: InlayWidth | number
+  woodInlayWidthMm?: number
   woodInlayDepth?: InlayDepth
+  woodInlayChamfer?: boolean
 }
 
 type AppConfig = {
@@ -98,43 +111,43 @@ type AppConfig = {
   style: StyleId
   finish: FinishId
   name: string
-  groovedCount: GrooveCount
-  groovedDepth: GrooveDepth
-  groovedWidth: GrooveWidth
-  facetedCount: FacetCount
-  facetedSharpness: FacetedSharpness
-  hammeredIntensity: HammeredIntensity
-  hammeredScale: HammeredScale
-  openGapWidth: OpenGapWidth
-  openEdgeTreatment: OpenEdgeTreatment
-  diagonalGapWidth: DiagonalGapWidth
+  groovedWidthMm: number
+  groovedDepthMm: number
+  groovedCount: number
+  groovedOuterCrestMm: number
+  facetedCount: number
+  facetedEdgeMode: FacetedEdgeMode
+  openOpeningMm: number
+  openRoundedEdgeRadiusMm: number
+  diagonalOpeningMm: number
   diagonalDirection: DiagonalDirection
-  diagonalEdgeTreatment: DiagonalEdgeTreatment
+  diagonalEdgeFinish: DiagonalEdgeTreatment
+  diagonalCutAngle: DiagonalCutAngle
   woodSleeveWoodType: WoodType
-  woodSleeveThickness: SleeveThickness
   woodInlayWoodType: WoodType
-  woodInlayWidth: InlayWidth
-  woodInlayDepth: InlayDepth
+  woodInlayWidthMm: number
+  woodInlayChamfer: boolean
 }
 
 type StyleSettings = {
-  groovedCount: GrooveCount
-  groovedDepth: GrooveDepth
-  groovedWidth: GrooveWidth
-  facetedCount: FacetCount
-  facetedSharpness: FacetedSharpness
-  hammeredIntensity: HammeredIntensity
-  hammeredScale: HammeredScale
-  openGapWidth: OpenGapWidth
-  openEdgeTreatment: OpenEdgeTreatment
-  diagonalGapWidth: DiagonalGapWidth
+  ringSize: number
+  bandWidth: number
+  groovedWidthMm: number
+  groovedDepthMm: number
+  groovedCount: number
+  groovedOuterCrestMm: number
+  facetedCount: number
+  facetedEdgeMode: FacetedEdgeMode
+  openOpeningMm: number
+  openRoundedEdgeRadiusMm: number
+  diagonalOpeningMm: number
   diagonalDirection: DiagonalDirection
-  diagonalEdgeTreatment: DiagonalEdgeTreatment
+  diagonalEdgeFinish: DiagonalEdgeTreatment
+  diagonalCutAngle: DiagonalCutAngle
   woodSleeveWoodType: WoodType
-  woodSleeveThickness: SleeveThickness
   woodInlayWoodType: WoodType
-  woodInlayWidth: InlayWidth
-  woodInlayDepth: InlayDepth
+  woodInlayWidthMm: number
+  woodInlayChamfer: boolean
 }
 
 type SubmitState = "idle" | "sending" | "success" | "error"
@@ -146,6 +159,13 @@ const ACCESS_KEY = "ring-config-access"
 const ACCESS_CODE = "4827"
 const THEME_KEY = "ring-config-theme"
 const FORMSPREE_ENDPOINT = "https://formspree.io/f/mzdywkpb"
+const MM_TO_SCENE = 0.045
+const WALL_THICKNESS_MM = 4.4
+const WOOD_SLEEVE_THICKNESS_MM = 0.5
+const WOOD_INLAY_EDGE_MM = 1.0
+const METAL_LIP_MM = 0.5
+const SOFTENED_DIAGONAL_BEVEL_MM = 0.4
+const FACET_MIN_ARC_MM = 2.2
 
 const DEFAULT_CONFIG: AppConfig = {
   language: "en",
@@ -154,23 +174,22 @@ const DEFAULT_CONFIG: AppConfig = {
   style: "simple",
   finish: "normal",
   name: "My Ring",
-  groovedCount: "triple",
-  groovedDepth: "medium",
-  groovedWidth: "medium",
-  facetedCount: "classic",
-  facetedSharpness: "crisp",
-  hammeredIntensity: "medium",
-  hammeredScale: "fine",
-  openGapWidth: "medium",
-  openEdgeTreatment: "softened",
-  diagonalGapWidth: "medium",
+  groovedWidthMm: 0.8,
+  groovedDepthMm: 0.3,
+  groovedCount: 3,
+  groovedOuterCrestMm: 1,
+  facetedCount: 14,
+  facetedEdgeMode: "hard",
+  openOpeningMm: 5,
+  openRoundedEdgeRadiusMm: 0.8,
+  diagonalOpeningMm: 5,
   diagonalDirection: "rightRising",
-  diagonalEdgeTreatment: "softened",
+  diagonalEdgeFinish: "softened",
+  diagonalCutAngle: "standard",
   woodSleeveWoodType: "walnut",
-  woodSleeveThickness: "medium",
   woodInlayWoodType: "walnut",
-  woodInlayWidth: "medium",
-  woodInlayDepth: "medium",
+  woodInlayWidthMm: 3,
+  woodInlayChamfer: true,
 }
 
 const DEFAULT_HERO_ROTATION: [number, number, number] = [-0.48, -0.42, -0.32]
@@ -207,22 +226,8 @@ const sizes = [
   { label: "Ø 21.4 mm / 67 / US 12", diameter: 21.4 },
 ]
 
-const grooveCountIds = new Set<GrooveCount>(["single", "double", "triple"])
-const grooveDepthIds = new Set<GrooveDepth>(["subtle", "medium", "deep"])
-const grooveWidthIds = new Set<GrooveWidth>(["fine", "medium", "wide"])
-const facetCountIds = new Set<FacetCount>(["subtle", "classic", "bold"])
-const facetedSharpnessIds = new Set<FacetedSharpness>(["soft", "crisp"])
-const hammeredIntensityIds = new Set<HammeredIntensity>(["subtle", "medium", "pronounced"])
-const hammeredScaleIds = new Set<HammeredScale>(["fine", "medium", "coarse"])
-const openGapWidthIds = new Set<OpenGapWidth>(["subtle", "medium", "bold"])
-const openEdgeTreatmentIds = new Set<OpenEdgeTreatment>(["razor", "softened", "rounded"])
-const diagonalGapWidthIds = new Set<DiagonalGapWidth>(["subtle", "medium", "bold"])
 const diagonalDirectionIds = new Set<DiagonalDirection>(["leftRising", "rightRising"])
-const diagonalEdgeTreatmentIds = new Set<DiagonalEdgeTreatment>(["razor", "softened"])
 const woodTypeIds = new Set<WoodType>(["walnut", "oak", "ebony", "maple"])
-const sleeveThicknessIds = new Set<SleeveThickness>(["slim", "medium", "bold"])
-const inlayWidthIds = new Set<InlayWidth>(["narrow", "medium", "wide"])
-const inlayDepthIds = new Set<InlayDepth>(["shallow", "medium", "deep"])
 
 const styleIds = new Set(styles.map((item) => item.id))
 const finishIds = new Set(finishes.map((item) => item.id))
@@ -231,8 +236,110 @@ function normaliseStyleValue<T>(value: unknown, validSet: Set<T>, fallback: T): 
   return validSet.has(value as T) ? (value as T) : fallback
 }
 
+function mmToScene(mm: number) {
+  return mm * MM_TO_SCENE
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function getCircumferenceMm(diameterMm: number) {
+  return Math.PI * diameterMm
+}
+
+function getCentreRadiusMm(diameterMm: number) {
+  return diameterMm / 2 + WALL_THICKNESS_MM / 2
+}
+
+function getMiddleCrestMm(grooveWidthMm: number) {
+  return clamp(grooveWidthMm * 0.75, 0.4, 1.2)
+}
+
+function getMaxGrooveCount(bandWidthMm: number, grooveWidthMm: number, outerCrestMm: number) {
+  const safeOuterCrestMm = Math.max(outerCrestMm, grooveWidthMm * 0.8)
+  const availableWidthMm = Math.max(0, bandWidthMm - 2 * safeOuterCrestMm)
+  const middleCrestMm = getMiddleCrestMm(grooveWidthMm)
+  let maxCount = 0
+
+  for (let count = 1; count <= 12; count += 1) {
+    const totalWidthNeededMm = count * grooveWidthMm + (count - 1) * middleCrestMm
+    if (totalWidthNeededMm <= availableWidthMm + 1e-6) {
+      maxCount = count
+    }
+  }
+
+  return Math.max(1, maxCount)
+}
+
+function getGrooveLayoutMm(bandWidthMm: number, grooveWidthMm: number, grooveCount: number, outerCrestMm: number) {
+  const middleCrestMm = getMiddleCrestMm(grooveWidthMm)
+  const totalWidthNeededMm = grooveCount * grooveWidthMm + (grooveCount - 1) * middleCrestMm
+  const layoutStartMm = -totalWidthNeededMm / 2
+  const centers: number[] = []
+
+  for (let index = 0; index < grooveCount; index += 1) {
+    const grooveStartMm = layoutStartMm + index * (grooveWidthMm + middleCrestMm)
+    centers.push(grooveStartMm + grooveWidthMm / 2)
+  }
+
+  return {
+    centers,
+    middleCrestMm,
+    totalWidthNeededMm,
+    availableWidthMm: Math.max(0, bandWidthMm - 2 * outerCrestMm),
+  }
+}
+
+function getDiagonalCutAngleDegrees(cutAngle: DiagonalCutAngle) {
+  return cutAngle === "gentle" ? 20 : cutAngle === "steep" ? 50 : 35
+}
+
+function validateStyleSettings(config: AppConfig): AppConfig {
+  const next = { ...config }
+  const circumferenceMm = getCircumferenceMm(next.ringSize)
+
+  next.groovedWidthMm = clamp(next.groovedWidthMm, 0.4, 2.0)
+  next.groovedDepthMm = clamp(next.groovedDepthMm, 0.1, 0.5)
+  next.groovedOuterCrestMm = clamp(next.groovedOuterCrestMm, 0.4, 5.0)
+  next.groovedOuterCrestMm = Math.max(next.groovedOuterCrestMm, next.groovedWidthMm * 0.8)
+  const maxGrooveCount = getMaxGrooveCount(next.bandWidth, next.groovedWidthMm, next.groovedOuterCrestMm)
+  next.groovedCount = clamp(Math.round(next.groovedCount), 1, maxGrooveCount)
+  if (next.groovedCount > 1) {
+    const availableOuterMm = Math.max(0.4, (next.bandWidth - (next.groovedCount * next.groovedWidthMm + (next.groovedCount - 1) * getMiddleCrestMm(next.groovedWidthMm))) / 2)
+    next.groovedOuterCrestMm = clamp(next.groovedOuterCrestMm, Math.min(5, availableOuterMm), 5)
+  }
+
+  next.facetedCount = clamp(Math.round(next.facetedCount), 10, 20)
+  const maxFacetCountByArc = Math.max(10, Math.floor(circumferenceMm / FACET_MIN_ARC_MM))
+  next.facetedCount = Math.min(next.facetedCount, maxFacetCountByArc)
+
+  next.openOpeningMm = clamp(next.openOpeningMm, 3, Math.min(8, circumferenceMm * 0.25))
+  next.openRoundedEdgeRadiusMm = clamp(next.openRoundedEdgeRadiusMm, 0, 1.5)
+
+  const diagonalAngleDegrees = getDiagonalCutAngleDegrees(next.diagonalCutAngle)
+  const requiredGapMm = Math.tan((diagonalAngleDegrees * Math.PI) / 180) * next.bandWidth * 0.5
+  next.diagonalOpeningMm = clamp(next.diagonalOpeningMm, Math.max(3, requiredGapMm), Math.min(8, circumferenceMm * 0.25))
+
+  const maxInlayWidthMm = next.bandWidth - WOOD_INLAY_EDGE_MM * 2
+  if (maxInlayWidthMm >= 2) {
+    next.woodInlayWidthMm = clamp(next.woodInlayWidthMm, 2, maxInlayWidthMm)
+  } else {
+    next.woodInlayWidthMm = Math.max(0.6, next.bandWidth * 0.45)
+  }
+
+  return next
+}
+
 function getDefaultName(language: Language) {
   return language === "en" ? "My Ring" : "Mein Ring"
+}
+
+function formatValue(language: Language, value: number, digits = 1) {
+  return value.toLocaleString(language === "de" ? "de-AT" : "en-US", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })
 }
 
 function normaliseConfig(data: StoredConfig): AppConfig {
@@ -244,49 +351,140 @@ function normaliseConfig(data: StoredConfig): AppConfig {
   const finish = data.finish && finishIds.has(data.finish) ? data.finish : DEFAULT_CONFIG.finish
   const name = typeof data.name === "string" && data.name.trim() ? data.name : getDefaultName(language)
 
-  const groovedCount = normaliseStyleValue(data.groovedCount, grooveCountIds, DEFAULT_CONFIG.groovedCount)
-  const groovedDepth = normaliseStyleValue(data.groovedDepth, grooveDepthIds, DEFAULT_CONFIG.groovedDepth)
-  const groovedWidth = normaliseStyleValue(data.groovedWidth, grooveWidthIds, DEFAULT_CONFIG.groovedWidth)
-  const facetedCount = normaliseStyleValue(data.facetedCount, facetCountIds, DEFAULT_CONFIG.facetedCount)
-  const facetedSharpness = normaliseStyleValue(data.facetedSharpness, facetedSharpnessIds, DEFAULT_CONFIG.facetedSharpness)
-  const hammeredIntensity = normaliseStyleValue(data.hammeredIntensity, hammeredIntensityIds, DEFAULT_CONFIG.hammeredIntensity)
-  const hammeredScale = normaliseStyleValue(data.hammeredScale, hammeredScaleIds, DEFAULT_CONFIG.hammeredScale)
-  const openGapWidth = normaliseStyleValue(data.openGapWidth, openGapWidthIds, DEFAULT_CONFIG.openGapWidth)
-  const openEdgeTreatment = normaliseStyleValue(data.openEdgeTreatment, openEdgeTreatmentIds, DEFAULT_CONFIG.openEdgeTreatment)
-  const diagonalGapWidth = normaliseStyleValue(data.diagonalGapWidth, diagonalGapWidthIds, DEFAULT_CONFIG.diagonalGapWidth)
+  const groovedCount =
+    typeof data.groovedCount === "number"
+      ? data.groovedCount
+      : data.groovedCount === "single"
+      ? 1
+      : data.groovedCount === "double"
+      ? 2
+      : data.groovedCount === "triple"
+      ? 3
+      : DEFAULT_CONFIG.groovedCount
+  const groovedDepthMm =
+    typeof data.groovedDepthMm === "number"
+      ? data.groovedDepthMm
+      : data.groovedDepth === "subtle"
+      ? 0.2
+      : data.groovedDepth === "deep"
+      ? 0.5
+      : data.groovedDepth === "medium"
+      ? 0.3
+      : DEFAULT_CONFIG.groovedDepthMm
+  const groovedWidthMm =
+    typeof data.groovedWidthMm === "number"
+      ? data.groovedWidthMm
+      : data.groovedWidth === "fine"
+      ? 0.4
+      : data.groovedWidth === "wide"
+      ? 1.2
+      : data.groovedWidth === "medium"
+      ? 0.8
+      : DEFAULT_CONFIG.groovedWidthMm
+  const groovedOuterCrestMm = typeof data.groovedOuterCrestMm === "number" ? data.groovedOuterCrestMm : DEFAULT_CONFIG.groovedOuterCrestMm
+  const facetedCount =
+    typeof data.facetedCount === "number"
+      ? data.facetedCount
+      : data.facetedCount === "subtle"
+      ? 20
+      : data.facetedCount === "bold"
+      ? 10
+      : data.facetedCount === "classic"
+      ? 16
+      : DEFAULT_CONFIG.facetedCount
+  const facetedEdgeMode =
+    data.facetedEdgeMode === "soft" || data.facetedEdgeMode === "hard"
+      ? data.facetedEdgeMode
+      : data.facetedSharpness === "soft"
+      ? "soft"
+      : data.facetedSharpness === "crisp"
+      ? "hard"
+      : DEFAULT_CONFIG.facetedEdgeMode
+  const openOpeningMm =
+    typeof data.openOpeningMm === "number"
+      ? data.openOpeningMm
+      : data.openGapWidth === "subtle"
+      ? 3
+      : data.openGapWidth === "bold"
+      ? 8
+      : data.openGapWidth === "medium"
+      ? 5
+      : DEFAULT_CONFIG.openOpeningMm
+  const openRoundedEdgeRadiusMm =
+    typeof data.openRoundedEdgeRadiusMm === "number"
+      ? data.openRoundedEdgeRadiusMm
+      : data.openEdgeTreatment === "razor"
+      ? 0
+      : data.openEdgeTreatment === "rounded"
+      ? 1
+      : data.openEdgeTreatment === "softened"
+      ? 0.4
+      : DEFAULT_CONFIG.openRoundedEdgeRadiusMm
+  const diagonalOpeningMm =
+    typeof data.diagonalOpeningMm === "number"
+      ? data.diagonalOpeningMm
+      : data.diagonalGapWidth === "subtle"
+      ? 3
+      : data.diagonalGapWidth === "bold"
+      ? 8
+      : data.diagonalGapWidth === "medium"
+      ? 5
+      : DEFAULT_CONFIG.diagonalOpeningMm
   const diagonalDirection = normaliseStyleValue(data.diagonalDirection, diagonalDirectionIds, DEFAULT_CONFIG.diagonalDirection)
-  const diagonalEdgeTreatment = normaliseStyleValue(data.diagonalEdgeTreatment, diagonalEdgeTreatmentIds, DEFAULT_CONFIG.diagonalEdgeTreatment)
+  const diagonalEdgeFinish =
+    data.diagonalEdgeFinish === "razor" || data.diagonalEdgeFinish === "softened"
+      ? data.diagonalEdgeFinish
+      : data.diagonalEdgeTreatment === "razor" || data.diagonalEdgeTreatment === "softened"
+      ? data.diagonalEdgeTreatment
+      : DEFAULT_CONFIG.diagonalEdgeFinish
+  const diagonalCutAngle =
+    data.diagonalCutAngle === "gentle" || data.diagonalCutAngle === "standard" || data.diagonalCutAngle === "steep"
+      ? data.diagonalCutAngle
+      : typeof data.diagonalCutAngle === "number"
+      ? data.diagonalCutAngle <= 25
+        ? "gentle"
+        : data.diagonalCutAngle >= 45
+        ? "steep"
+        : "standard"
+      : DEFAULT_CONFIG.diagonalCutAngle
   const woodSleeveWoodType = normaliseStyleValue(data.woodSleeveWoodType, woodTypeIds, DEFAULT_CONFIG.woodSleeveWoodType)
-  const woodSleeveThickness = normaliseStyleValue(data.woodSleeveThickness, sleeveThicknessIds, DEFAULT_CONFIG.woodSleeveThickness)
   const woodInlayWoodType = normaliseStyleValue(data.woodInlayWoodType, woodTypeIds, DEFAULT_CONFIG.woodInlayWoodType)
-  const woodInlayWidth = normaliseStyleValue(data.woodInlayWidth, inlayWidthIds, DEFAULT_CONFIG.woodInlayWidth)
-  const woodInlayDepth = normaliseStyleValue(data.woodInlayDepth, inlayDepthIds, DEFAULT_CONFIG.woodInlayDepth)
+  const woodInlayWidthMm =
+    typeof data.woodInlayWidthMm === "number"
+      ? data.woodInlayWidthMm
+      : data.woodInlayWidth === "narrow"
+      ? 2
+      : data.woodInlayWidth === "wide"
+      ? 4
+      : data.woodInlayWidth === "medium"
+      ? 3
+      : DEFAULT_CONFIG.woodInlayWidthMm
+  const woodInlayChamfer = typeof data.woodInlayChamfer === "boolean" ? data.woodInlayChamfer : true
 
-  return {
+  return validateStyleSettings({
     language,
     ringSize,
     bandWidth,
     style,
     finish,
     name,
+    groovedWidthMm,
+    groovedDepthMm,
     groovedCount,
-    groovedDepth,
-    groovedWidth,
+    groovedOuterCrestMm,
     facetedCount,
-    facetedSharpness,
-    hammeredIntensity,
-    hammeredScale,
-    openGapWidth,
-    openEdgeTreatment,
-    diagonalGapWidth,
+    facetedEdgeMode,
+    openOpeningMm,
+    openRoundedEdgeRadiusMm,
+    diagonalOpeningMm,
     diagonalDirection,
-    diagonalEdgeTreatment,
+    diagonalEdgeFinish,
+    diagonalCutAngle,
     woodSleeveWoodType,
-    woodSleeveThickness,
     woodInlayWoodType,
-    woodInlayWidth,
-    woodInlayDepth,
-  }
+    woodInlayWidthMm,
+    woodInlayChamfer,
+  })
 }
 
 function getInitialConfig(): AppConfig {
@@ -308,7 +506,8 @@ function buildProfile(
   innerRadius: number,
   outerRadius: number,
   bandHalfWidth: number,
-  wallThickness: number
+  wallThickness: number,
+  styleSettings?: StyleSettings
 ) {
   const profile: THREE.Vector2[] = []
   const bevel = Math.min(0.045, wallThickness * 0.22, bandHalfWidth * 0.4)
@@ -327,7 +526,7 @@ function buildProfile(
       new THREE.Vector2(innerRadius, bandHalfWidth - bevel),
       new THREE.Vector2(innerRadius, -bandHalfWidth + bevel)
     )
-  } else if (style === "simple" || style === "diagonal") {
+  } else if (style === "simple") {
     const shoulder = wallThickness * 0.04
     profile.push(
       new THREE.Vector2(innerRadius, -bandHalfWidth + bevel),
@@ -342,7 +541,23 @@ function buildProfile(
       new THREE.Vector2(innerRadius, bandHalfWidth - bevel),
       new THREE.Vector2(innerRadius, -bandHalfWidth + bevel)
     )
-  } else if (style === "domed" || style === "hammered" || style === "open") {
+  } else if (style === "diagonal") {
+    const diagonalBevel = styleSettings?.diagonalEdgeFinish === "softened" ? clamp(mmToScene(SOFTENED_DIAGONAL_BEVEL_MM), 0.012, Math.min(wallThickness * 0.34, bandHalfWidth * 0.38)) : Math.min(0.012, bevel * 0.45)
+    const shoulder = wallThickness * 0.035
+    profile.push(
+      new THREE.Vector2(innerRadius, -bandHalfWidth + diagonalBevel),
+      new THREE.Vector2(innerRadius + diagonalBevel * 0.32, -bandHalfWidth),
+      new THREE.Vector2(outerRadius - diagonalBevel * 1.2 - shoulder, -bandHalfWidth),
+      new THREE.Vector2(outerRadius - diagonalBevel * 0.26, -bandHalfWidth + diagonalBevel * 0.24),
+      new THREE.Vector2(outerRadius, -bandHalfWidth + diagonalBevel * 0.88),
+      new THREE.Vector2(outerRadius, bandHalfWidth - diagonalBevel * 0.88),
+      new THREE.Vector2(outerRadius - diagonalBevel * 0.26, bandHalfWidth - diagonalBevel * 0.24),
+      new THREE.Vector2(outerRadius - diagonalBevel * 1.2 - shoulder, bandHalfWidth),
+      new THREE.Vector2(innerRadius + diagonalBevel * 0.32, bandHalfWidth),
+      new THREE.Vector2(innerRadius, bandHalfWidth - diagonalBevel),
+      new THREE.Vector2(innerRadius, -bandHalfWidth + diagonalBevel)
+    )
+  } else if (style === "domed" || style === "hammered") {
     const steps = 22
     profile.push(new THREE.Vector2(innerRadius, -bandHalfWidth + bevel))
     profile.push(new THREE.Vector2(innerRadius + bevel * 0.5, -bandHalfWidth))
@@ -359,6 +574,23 @@ function buildProfile(
       new THREE.Vector2(innerRadius + bevel * 0.5, bandHalfWidth),
       new THREE.Vector2(innerRadius, bandHalfWidth - bevel),
       new THREE.Vector2(innerRadius, -bandHalfWidth + bevel)
+    )
+  } else if (style === "open") {
+    const roundedEdge = clamp(mmToScene(styleSettings?.openRoundedEdgeRadiusMm ?? DEFAULT_CONFIG.openRoundedEdgeRadiusMm), 0.003, Math.min(wallThickness * 0.38, bandHalfWidth * 0.48))
+    const outerShoulder = roundedEdge * 0.22
+    profile.push(
+      new THREE.Vector2(innerRadius, -bandHalfWidth + roundedEdge),
+      new THREE.Vector2(innerRadius + roundedEdge * 0.55, -bandHalfWidth),
+      new THREE.Vector2(outerRadius - roundedEdge * 0.95 - outerShoulder, -bandHalfWidth),
+      new THREE.Vector2(outerRadius - roundedEdge * 0.34, -bandHalfWidth + roundedEdge * 0.3),
+      new THREE.Vector2(outerRadius, -bandHalfWidth + roundedEdge * 0.98),
+      new THREE.Vector2(outerRadius + wallThickness * 0.18, 0),
+      new THREE.Vector2(outerRadius, bandHalfWidth - roundedEdge * 0.98),
+      new THREE.Vector2(outerRadius - roundedEdge * 0.34, bandHalfWidth - roundedEdge * 0.3),
+      new THREE.Vector2(outerRadius - roundedEdge * 0.95 - outerShoulder, bandHalfWidth),
+      new THREE.Vector2(innerRadius + roundedEdge * 0.55, bandHalfWidth),
+      new THREE.Vector2(innerRadius, bandHalfWidth - roundedEdge),
+      new THREE.Vector2(innerRadius, -bandHalfWidth + roundedEdge)
     )
   } else if (style === "faceted") {
     const facetInset = wallThickness * 0.16
@@ -378,6 +610,43 @@ function buildProfile(
   }
 
   return profile
+}
+
+function createFacetedRingGeometry(
+  innerRadius: number,
+  outerRadius: number,
+  bandHalfWidth: number,
+  facetCount: number,
+  edgeMode: FacetedEdgeMode
+) {
+  const shape = new THREE.Shape()
+  const outerPoints = Array.from({ length: facetCount }, (_, index) => {
+    const angle = (index / facetCount) * Math.PI * 2
+    return new THREE.Vector2(Math.cos(angle) * outerRadius, Math.sin(angle) * outerRadius)
+  })
+
+  shape.moveTo(outerPoints[0].x, outerPoints[0].y)
+  outerPoints.slice(1).forEach((point) => shape.lineTo(point.x, point.y))
+  shape.closePath()
+
+  const innerCurve = new THREE.Path()
+  innerCurve.absellipse(0, 0, innerRadius, innerRadius, 0, Math.PI * 2, true, 0)
+  shape.holes.push(innerCurve)
+
+  const bevelEnabled = edgeMode === "soft"
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth: bandHalfWidth * 2,
+    steps: 1,
+    bevelEnabled,
+    bevelSegments: bevelEnabled ? 2 : 0,
+    bevelSize: bevelEnabled ? Math.min(mmToScene(0.18), bandHalfWidth * 0.12) : 0,
+    bevelThickness: bevelEnabled ? Math.min(mmToScene(0.12), bandHalfWidth * 0.09) : 0,
+  })
+
+  geometry.translate(0, 0, -bandHalfWidth)
+  geometry.rotateX(Math.PI / 2)
+  geometry.computeVertexNormals()
+  return geometry
 }
 
 function createEndCapGeometry(
@@ -421,26 +690,20 @@ function createLatheGeometry(
   bandHalfWidth: number,
   reducedDetail = false
 ) {
-  const facetedSegments =
-    styleSettings.facetedCount === "subtle"
-      ? reducedDetail
-        ? 24
-        : 32
-      : styleSettings.facetedCount === "bold"
-      ? reducedDetail
-        ? 10
-        : 14
-      : reducedDetail
-      ? 16
-      : 20
+  if (style === "faceted") {
+    return createFacetedRingGeometry(
+      styleSettings.ringSize / 20,
+      styleSettings.ringSize / 20 + mmToScene(WALL_THICKNESS_MM),
+      mmToScene(styleSettings.bandWidth),
+      styleSettings.facetedCount,
+      styleSettings.facetedEdgeMode
+    )
+  }
+
   const segments = reducedDetail
-    ? style === "faceted"
-      ? facetedSegments
-      : style === "open" || style === "diagonal"
+    ? style === "open" || style === "diagonal"
       ? 128
       : 192
-    : style === "faceted"
-    ? facetedSegments
     : style === "open" || style === "diagonal"
     ? 224
     : 384
@@ -449,29 +712,16 @@ function createLatheGeometry(
   let capSlope = 0
 
   if (style === "open") {
-    phiLength =
-      styleSettings.openGapWidth === "subtle"
-        ? Math.PI * 1.9
-        : styleSettings.openGapWidth === "bold"
-        ? Math.PI * 1.45
-        : Math.PI * 1.68
-    phiStart =
-      styleSettings.openEdgeTreatment === "rounded"
-        ? Math.PI * 1.12
-        : styleSettings.openEdgeTreatment === "softened"
-        ? Math.PI * 1.14
-        : Math.PI * 1.16
+    const gapAngleRad = styleSettings.openOpeningMm / getCentreRadiusMm(styleSettings.ringSize)
+    phiLength = Math.PI * 2 - gapAngleRad
+    phiStart = Math.PI + gapAngleRad / 2
   }
 
   if (style === "diagonal") {
-    phiLength =
-      styleSettings.diagonalGapWidth === "subtle"
-        ? Math.PI * 1.9
-        : styleSettings.diagonalGapWidth === "bold"
-        ? Math.PI * 1.45
-        : Math.PI * 1.68
-    phiStart = Math.PI * 1.16
-    capSlope = styleSettings.diagonalEdgeTreatment === "razor" ? 0.09 : 0.06
+    const gapAngleRad = styleSettings.diagonalOpeningMm / getCentreRadiusMm(styleSettings.ringSize)
+    phiLength = Math.PI * 2 - gapAngleRad
+    phiStart = Math.PI + gapAngleRad / 2
+    capSlope = Math.tan((getDiagonalCutAngleDegrees(styleSettings.diagonalCutAngle) * Math.PI) / 180) * bandHalfWidth
   }
 
   const geometry = new THREE.LatheGeometry(profile, segments, phiStart, phiLength)
@@ -559,6 +809,32 @@ function createOuterStripGeometry(
   return createLatheGeometry(profile, style, styleSettings, Math.max(Math.abs(yMin), Math.abs(yMax)), reducedDetail)
 }
 
+function createChamferedStripGeometry(
+  outerRadius: number,
+  yMin: number,
+  yMax: number,
+  thickness: number,
+  chamferMm: number,
+  style: StyleId,
+  styleSettings: StyleSettings,
+  reducedDetail = false
+) {
+  const chamfer = clamp(mmToScene(chamferMm), 0, Math.min(thickness * 0.45, Math.abs(yMax - yMin) * 0.2))
+  const profile = [
+    new THREE.Vector2(outerRadius - thickness, yMin + chamfer),
+    new THREE.Vector2(outerRadius - thickness + chamfer * 0.4, yMin),
+    new THREE.Vector2(outerRadius + thickness - chamfer * 0.28, yMin),
+    new THREE.Vector2(outerRadius + thickness, yMin + chamfer),
+    new THREE.Vector2(outerRadius + thickness, yMax - chamfer),
+    new THREE.Vector2(outerRadius + thickness - chamfer * 0.28, yMax),
+    new THREE.Vector2(outerRadius - thickness + chamfer * 0.4, yMax),
+    new THREE.Vector2(outerRadius - thickness, yMax - chamfer),
+    new THREE.Vector2(outerRadius - thickness, yMin + chamfer),
+  ]
+
+  return createLatheGeometry(profile, style, styleSettings, Math.max(Math.abs(yMin), Math.abs(yMax)), reducedDetail)
+}
+
 function createSoftWindowTexture(theme: ThemeMode, reducedDetail = false) {
   const canvas = document.createElement("canvas")
   const canvasSize = reducedDetail ? 768 : 1024
@@ -624,54 +900,46 @@ function Ring({
 
   const { geometry, grooveGeometries, woodInlayGeometry, woodSleeveGeometry } = useMemo(() => {
     const innerRadius = size / 20
-    const bandHalfWidth = width * 0.045
-
-    // FIXED wall thickness (constant, independent of width)
-    const wallThickness = 0.22
+    const bandHalfWidth = mmToScene(width)
+    const wallThickness = mmToScene(WALL_THICKNESS_MM)
 
     const outerRadius = innerRadius + wallThickness
-    const profile = buildProfile(style, innerRadius, outerRadius, bandHalfWidth, wallThickness)
+    const profile = buildProfile(style, innerRadius, outerRadius, bandHalfWidth, wallThickness, styleSettings)
     const baseGeometry = createLatheGeometry(profile, style, styleSettings, bandHalfWidth, reducedDetail)
     let geometry = baseGeometry
 
     if (style === "hammered") {
       geometry = createHammeredGeometry(
         baseGeometry,
-        styleSettings.hammeredIntensity,
-        styleSettings.hammeredScale,
+        size < 17.5 ? "subtle" : size > 21 ? "pronounced" : "medium",
+        size < 17.5 ? "fine" : size > 21 ? "medium" : "fine",
         innerRadius,
         outerRadius
       )
     }
 
-    if (style === "faceted" && styleSettings.facetedSharpness === "crisp") {
+    if (style === "faceted" && styleSettings.facetedEdgeMode === "hard") {
       geometry = baseGeometry.index ? baseGeometry.toNonIndexed() : baseGeometry.clone()
       geometry.computeVertexNormals()
     }
 
-    const grooveOffsets =
-      styleSettings.groovedCount === "single"
-        ? [0]
-        : styleSettings.groovedCount === "double"
-        ? [-0.45, 0.45]
-        : [-0.68, 0, 0.68]
-
-    const grooveWidth = styleSettings.groovedWidth === "fine" ? 0.0035 : styleSettings.groovedWidth === "wide" ? 0.0065 : 0.005
-    const grooveHeight =
-      styleSettings.groovedDepth === "subtle"
-        ? bandHalfWidth * 0.18
-        : styleSettings.groovedDepth === "deep"
-        ? bandHalfWidth * 0.35
-        : bandHalfWidth * 0.26
+    const grooveLayout = getGrooveLayoutMm(
+      styleSettings.bandWidth,
+      styleSettings.groovedWidthMm,
+      styleSettings.groovedCount,
+      styleSettings.groovedOuterCrestMm
+    )
+    const grooveHalfWidth = mmToScene(styleSettings.groovedWidthMm) / 2
+    const grooveDepthScene = mmToScene(styleSettings.groovedDepthMm)
 
     const grooveGeometries =
       style === "grooved"
-        ? grooveOffsets.map((offset) =>
+        ? grooveLayout.centers.map((centerMm) =>
             createOuterStripGeometry(
-              outerRadius + 0.002,
-              bandHalfWidth * offset - grooveHeight,
-              bandHalfWidth * offset + grooveHeight,
-              grooveWidth,
+              outerRadius - grooveDepthScene * 0.2,
+              mmToScene(centerMm) - grooveHalfWidth,
+              mmToScene(centerMm) + grooveHalfWidth,
+              grooveDepthScene * 0.65,
               style,
               styleSettings,
               reducedDetail
@@ -679,44 +947,41 @@ function Ring({
           )
         : []
 
-    const woodInlayWidth =
-      styleSettings.woodInlayWidth === "narrow"
-        ? bandHalfWidth * 0.22
-        : styleSettings.woodInlayWidth === "wide"
-        ? bandHalfWidth * 0.34
-        : bandHalfWidth * 0.28
-    const woodInlayDepth =
-      styleSettings.woodInlayDepth === "shallow"
-        ? 0.004
-        : styleSettings.woodInlayDepth === "deep"
-        ? 0.01
-        : 0.006
+    const woodInlayHalfWidth = mmToScene(styleSettings.woodInlayWidthMm) / 2
+    const woodInlayInset = mmToScene(0.32)
 
     const woodInlayGeometry =
       style === "woodInlay"
-        ? createOuterStripGeometry(
-            outerRadius + woodInlayDepth,
-            -woodInlayWidth,
-            woodInlayWidth,
-            0.007,
-            style,
-            styleSettings,
-            reducedDetail
-          )
+        ? (styleSettings.woodInlayChamfer
+            ? createChamferedStripGeometry(
+                outerRadius + woodInlayInset,
+                -woodInlayHalfWidth,
+                woodInlayHalfWidth,
+                mmToScene(0.26),
+                0.18,
+                style,
+                styleSettings,
+                reducedDetail
+              )
+            : createOuterStripGeometry(
+                outerRadius + woodInlayInset,
+                -woodInlayHalfWidth,
+                woodInlayHalfWidth,
+                mmToScene(0.26),
+                style,
+                styleSettings,
+                reducedDetail
+              ))
         : null
 
-    const sleeveThickness =
-      styleSettings.woodSleeveThickness === "slim"
-        ? 0.008
-        : styleSettings.woodSleeveThickness === "bold"
-        ? 0.018
-        : 0.012
+    const sleeveThickness = mmToScene(WOOD_SLEEVE_THICKNESS_MM)
+    const metalLip = mmToScene(METAL_LIP_MM)
     const woodSleeveGeometry =
       style === "woodSleeve"
         ? createOuterStripGeometry(
-            outerRadius + 0.004,
-            -bandHalfWidth + 0.01,
-            bandHalfWidth - 0.01,
+            outerRadius + sleeveThickness * 0.45,
+            -bandHalfWidth + metalLip,
+            bandHalfWidth - metalLip,
             sleeveThickness,
             style,
             styleSettings,
@@ -748,7 +1013,7 @@ function Ring({
   const isWoodSleeve = style === "woodSleeve"
   const isBrushed = finish === "brushed"
   const isPolished = finish === "polished"
-  const isFacetedCrisp = style === "faceted" && styleSettings.facetedSharpness === "crisp"
+  const isFacetedCrisp = style === "faceted" && styleSettings.facetedEdgeMode === "hard"
 
   const mainColour = selectedFinish.colour
   const mainMetalness = selectedFinish.metalness ?? 0.88
@@ -1102,23 +1367,22 @@ function App() {
   const [style, setStyle] = useState<StyleId>(initialConfig.style)
   const [finish, setFinish] = useState<FinishId>(initialConfig.finish)
   const [name, setName] = useState(initialConfig.name)
-  const [groovedCount, setGroovedCount] = useState<GrooveCount>(initialConfig.groovedCount)
-  const [groovedDepth, setGroovedDepth] = useState<GrooveDepth>(initialConfig.groovedDepth)
-  const [groovedWidth, setGroovedWidth] = useState<GrooveWidth>(initialConfig.groovedWidth)
-  const [facetedCount, setFacetedCount] = useState<FacetCount>(initialConfig.facetedCount)
-  const [facetedSharpness, setFacetedSharpness] = useState<FacetedSharpness>(initialConfig.facetedSharpness)
-  const [hammeredIntensity, setHammeredIntensity] = useState<HammeredIntensity>(initialConfig.hammeredIntensity)
-  const [hammeredScale, setHammeredScale] = useState<HammeredScale>(initialConfig.hammeredScale)
-  const [openGapWidth, setOpenGapWidth] = useState<OpenGapWidth>(initialConfig.openGapWidth)
-  const [openEdgeTreatment, setOpenEdgeTreatment] = useState<OpenEdgeTreatment>(initialConfig.openEdgeTreatment)
-  const [diagonalGapWidth, setDiagonalGapWidth] = useState<DiagonalGapWidth>(initialConfig.diagonalGapWidth)
+  const [groovedWidthMm, setGroovedWidthMm] = useState(initialConfig.groovedWidthMm)
+  const [groovedDepthMm, setGroovedDepthMm] = useState(initialConfig.groovedDepthMm)
+  const [groovedCount, setGroovedCount] = useState(initialConfig.groovedCount)
+  const [groovedOuterCrestMm, setGroovedOuterCrestMm] = useState(initialConfig.groovedOuterCrestMm)
+  const [facetedCount, setFacetedCount] = useState(initialConfig.facetedCount)
+  const [facetedEdgeMode, setFacetedEdgeMode] = useState<FacetedEdgeMode>(initialConfig.facetedEdgeMode)
+  const [openOpeningMm, setOpenOpeningMm] = useState(initialConfig.openOpeningMm)
+  const [openRoundedEdgeRadiusMm, setOpenRoundedEdgeRadiusMm] = useState(initialConfig.openRoundedEdgeRadiusMm)
+  const [diagonalOpeningMm, setDiagonalOpeningMm] = useState(initialConfig.diagonalOpeningMm)
   const [diagonalDirection, setDiagonalDirection] = useState<DiagonalDirection>(initialConfig.diagonalDirection)
-  const [diagonalEdgeTreatment, setDiagonalEdgeTreatment] = useState<DiagonalEdgeTreatment>(initialConfig.diagonalEdgeTreatment)
+  const [diagonalEdgeFinish, setDiagonalEdgeFinish] = useState<DiagonalEdgeTreatment>(initialConfig.diagonalEdgeFinish)
+  const [diagonalCutAngle, setDiagonalCutAngle] = useState<DiagonalCutAngle>(initialConfig.diagonalCutAngle)
   const [woodSleeveWoodType, setWoodSleeveWoodType] = useState<WoodType>(initialConfig.woodSleeveWoodType)
-  const [woodSleeveThickness, setWoodSleeveThickness] = useState<SleeveThickness>(initialConfig.woodSleeveThickness)
   const [woodInlayWoodType, setWoodInlayWoodType] = useState<WoodType>(initialConfig.woodInlayWoodType)
-  const [woodInlayWidth, setWoodInlayWidth] = useState<InlayWidth>(initialConfig.woodInlayWidth)
-  const [woodInlayDepth, setWoodInlayDepth] = useState<InlayDepth>(initialConfig.woodInlayDepth)
+  const [woodInlayWidthMm, setWoodInlayWidthMm] = useState(initialConfig.woodInlayWidthMm)
+  const [woodInlayChamfer, setWoodInlayChamfer] = useState(initialConfig.woodInlayChamfer)
   const [statusMessage, setStatusMessage] = useState("")
   const [submitState, setSubmitState] = useState<SubmitState>("idle")
   const [autoRotate, setAutoRotate] = useState(false)
@@ -1162,18 +1426,26 @@ function App() {
     grooveCount: language === "en" ? "Groove count" : "Anzahl der Rillen",
     grooveDepth: language === "en" ? "Groove depth" : "Rillentiefe",
     grooveWidth: language === "en" ? "Groove width" : "Rillenbreite",
+    outerCrest: language === "en" ? "Outer crest" : "Außensteg",
+    grooveHint: language === "en" ? "Maximum depends on band width and groove width." : "Das Maximum hängt von Bandbreite und Rillenbreite ab.",
     facetCount: language === "en" ? "Facet count" : "Facettenanzahl",
-    facetSharpness: language === "en" ? "Facet sharpness" : "Facettenschärfe",
-    hammeredIntensity: language === "en" ? "Hammered intensity" : "Hämmerungsintensität",
-    hammeredScale: language === "en" ? "Hammered scale" : "Hämmerungsskala",
-    openGapWidth: language === "en" ? "Open gap width" : "Auslassweite",
-    openEdgeTreatment: language === "en" ? "Edge treatment" : "Kantenbearbeitung",
-    diagonalDirection: language === "en" ? "Diagonal direction" : "Diagonale Richtung",
-    diagonalEdgeTreatment: language === "en" ? "Edge treatment" : "Kantenbearbeitung",
+    facetEdgeMode: language === "en" ? "Edge mode" : "Kantenmodus",
+    facetSoft: language === "en" ? "Soft edges" : "Weiche Kanten",
+    facetHard: language === "en" ? "Hard edges" : "Harte Kanten",
+    openOpening: language === "en" ? "Opening size" : "Öffnungsgröße",
+    openRoundedEdgeRadius: language === "en" ? "Rounded edge radius" : "Rundungsradius",
+    diagonalOpening: language === "en" ? "Opening gap" : "Öffnungsspalt",
+    diagonalDirection: language === "en" ? "Cut direction" : "Schnittrichtung",
+    diagonalEdgeFinish: language === "en" ? "Edge finish" : "Kantenfinish",
+    diagonalCutAngle: language === "en" ? "Cut angle" : "Schnittwinkel",
     woodType: language === "en" ? "Wood type" : "Holzart",
-    sleeveThickness: language === "en" ? "Sleeve thickness" : "Manteldicke",
-    inlayWidth: language === "en" ? "Inlay width" : "Einsatzbreite",
-    inlayDepth: language === "en" ? "Inlay depth" : "Einsatztiefe",
+    sleeveHelper: language === "en" ? "Fixed 0.5 mm outer wood sleeve on a metal core." : "Feste 0,5 mm äußere Holzschicht auf einem Metallkern.",
+    inlayWidth: language === "en" ? "Inlay width" : "Einlagenbreite",
+    chamfer: language === "en" ? "Chamfer" : "Fase",
+    chamferOn: language === "en" ? "Yes" : "Ja",
+    chamferOff: language === "en" ? "No" : "Nein",
+    hammeredHelper: language === "en" ? "Texture applied procedurally. Fine surface details scale with ring size." : "Textur wird prozedural angewendet. Feine Oberflächendetails skalieren mit der Ringgröße.",
+    inlayHelper: language === "en" ? "Metal edge: fixed 1.0 mm each side." : "Metallrand: fest 1,0 mm pro Seite.",
     topView: language === "en" ? "Top orthographic" : "Orthografisch oben",
     frontView: language === "en" ? "Front orthographic" : "Orthografisch vorne",
     technicalTitle: language === "en" ? "Technical views" : "Technische Ansichten",
@@ -1220,48 +1492,111 @@ function App() {
 
   const selectedStyle = styles.find((item) => item.id === style) ?? styles[0]
   const selectedFinish = finishes.find((item) => item.id === finish) ?? finishes[0]
-  const circumference = Math.PI * ringSize
+  const circumference = getCircumferenceMm(ringSize)
   const reducedDetail = isMobileLayout
-  const heroCamera = isMobileLayout ? { position: [0, 0.1, 4.4] as [number, number, number], fov: 27 } : { position: [0, 0.28, 7.45] as [number, number, number], fov: 27 }
-  const heroTarget: [number, number, number] = isMobileLayout ? [0.02, -0.02, 0] : [0.02, -0.12, 0]
+  const heroCamera = isMobileLayout ? { position: [0, 0.06, 4.2] as [number, number, number], fov: 26 } : { position: [0, 0.28, 7.45] as [number, number, number], fov: 27 }
+  const heroTarget: [number, number, number] = isMobileLayout ? [0.02, 0.02, 0] : [0.02, -0.12, 0]
   const heroDpr: [number, number] = isMobileLayout ? [1, 1.25] : [1, 1.75]
 
-  const styleSettings: StyleSettings = {
+  useEffect(() => {
+    const validated = validateStyleSettings({
+      language,
+      ringSize,
+      bandWidth,
+      style,
+      finish,
+      name,
+      groovedWidthMm,
+      groovedDepthMm,
+      groovedCount,
+      groovedOuterCrestMm,
+      facetedCount,
+      facetedEdgeMode,
+      openOpeningMm,
+      openRoundedEdgeRadiusMm,
+      diagonalOpeningMm,
+      diagonalDirection,
+      diagonalEdgeFinish,
+      diagonalCutAngle,
+      woodSleeveWoodType,
+      woodInlayWoodType,
+      woodInlayWidthMm,
+      woodInlayChamfer,
+    })
+
+    if (validated.groovedWidthMm !== groovedWidthMm) setGroovedWidthMm(validated.groovedWidthMm)
+    if (validated.groovedDepthMm !== groovedDepthMm) setGroovedDepthMm(validated.groovedDepthMm)
+    if (validated.groovedCount !== groovedCount) setGroovedCount(validated.groovedCount)
+    if (validated.groovedOuterCrestMm !== groovedOuterCrestMm) setGroovedOuterCrestMm(validated.groovedOuterCrestMm)
+    if (validated.facetedCount !== facetedCount) setFacetedCount(validated.facetedCount)
+    if (validated.openOpeningMm !== openOpeningMm) setOpenOpeningMm(validated.openOpeningMm)
+    if (validated.openRoundedEdgeRadiusMm !== openRoundedEdgeRadiusMm) setOpenRoundedEdgeRadiusMm(validated.openRoundedEdgeRadiusMm)
+    if (validated.diagonalOpeningMm !== diagonalOpeningMm) setDiagonalOpeningMm(validated.diagonalOpeningMm)
+    if (validated.woodInlayWidthMm !== woodInlayWidthMm) setWoodInlayWidthMm(validated.woodInlayWidthMm)
+  }, [
+    language,
+    ringSize,
+    bandWidth,
+    style,
+    finish,
+    name,
+    groovedWidthMm,
+    groovedDepthMm,
     groovedCount,
-    groovedDepth,
-    groovedWidth,
+    groovedOuterCrestMm,
     facetedCount,
-    facetedSharpness,
-    hammeredIntensity,
-    hammeredScale,
-    openGapWidth,
-    openEdgeTreatment,
-    diagonalGapWidth,
+    facetedEdgeMode,
+    openOpeningMm,
+    openRoundedEdgeRadiusMm,
+    diagonalOpeningMm,
     diagonalDirection,
-    diagonalEdgeTreatment,
+    diagonalEdgeFinish,
+    diagonalCutAngle,
     woodSleeveWoodType,
-    woodSleeveThickness,
     woodInlayWoodType,
-    woodInlayWidth,
-    woodInlayDepth,
+    woodInlayWidthMm,
+    woodInlayChamfer,
+  ])
+
+  const styleSettings: StyleSettings = {
+    ringSize,
+    bandWidth,
+    groovedWidthMm,
+    groovedDepthMm,
+    groovedCount,
+    groovedOuterCrestMm,
+    facetedCount,
+    facetedEdgeMode,
+    openOpeningMm,
+    openRoundedEdgeRadiusMm,
+    diagonalOpeningMm,
+    diagonalDirection,
+    diagonalEdgeFinish,
+    diagonalCutAngle,
+    woodSleeveWoodType,
+    woodInlayWoodType,
+    woodInlayWidthMm,
+    woodInlayChamfer,
   }
+
+  const maxGrooveCount = getMaxGrooveCount(bandWidth, groovedWidthMm, groovedOuterCrestMm)
+  const facetedArcLengthMm = circumference / facetedCount
+  const diagonalCutAngleDegrees = getDiagonalCutAngleDegrees(diagonalCutAngle)
 
   const activeStyleValues = (() => {
     switch (style) {
       case "grooved":
-        return { groovedCount, groovedDepth, groovedWidth }
+        return { groovedWidthMm, groovedDepthMm, groovedCount, groovedOuterCrestMm }
       case "faceted":
-        return { facetedCount, facetedSharpness }
-      case "hammered":
-        return { hammeredIntensity, hammeredScale }
+        return { facetedCount, facetedArcLengthMm: Number(facetedArcLengthMm.toFixed(1)), facetedEdgeMode }
       case "open":
-        return { openGapWidth, openEdgeTreatment }
+        return { openOpeningMm, openRoundedEdgeRadiusMm }
       case "diagonal":
-        return { diagonalGapWidth, diagonalDirection, diagonalEdgeTreatment }
+        return { diagonalOpeningMm, diagonalDirection, diagonalEdgeFinish, diagonalCutAngleDegrees }
       case "woodSleeve":
-        return { woodSleeveWoodType, woodSleeveThickness }
+        return { woodSleeveWoodType, woodSleeveThicknessMm: WOOD_SLEEVE_THICKNESS_MM }
       case "woodInlay":
-        return { woodInlayWoodType, woodInlayWidth, woodInlayDepth }
+        return { woodInlayWoodType, woodInlayWidthMm, woodInlayMetalEdgeMm: WOOD_INLAY_EDGE_MM, woodInlayChamfer }
       default:
         return {}
     }
@@ -1281,8 +1616,8 @@ function App() {
 
   const configSummary = [
     name.trim() || getDefaultName(language),
-    `${ringSize.toFixed(1)} mm Ø`,
-    `${circumference.toFixed(1)} mm ${language === "en" ? "circumference" : "Umfang"}`,
+    `Ø ${formatValue(language, ringSize)} mm`,
+    `${formatValue(language, circumference)} mm ${language === "en" ? "circumference" : "Umfang"}`,
     `${bandWidth.toFixed(0)} mm ${language === "en" ? "band width" : "Breite"}`,
     language === "en" ? selectedStyle.en : selectedStyle.de,
     language === "en" ? selectedFinish.en : selectedFinish.de,
@@ -1293,23 +1628,22 @@ function App() {
     setBandWidth(DEFAULT_CONFIG.bandWidth)
     setStyle(DEFAULT_CONFIG.style)
     setFinish(DEFAULT_CONFIG.finish)
+    setGroovedWidthMm(DEFAULT_CONFIG.groovedWidthMm)
+    setGroovedDepthMm(DEFAULT_CONFIG.groovedDepthMm)
     setGroovedCount(DEFAULT_CONFIG.groovedCount)
-    setGroovedDepth(DEFAULT_CONFIG.groovedDepth)
-    setGroovedWidth(DEFAULT_CONFIG.groovedWidth)
+    setGroovedOuterCrestMm(DEFAULT_CONFIG.groovedOuterCrestMm)
     setFacetedCount(DEFAULT_CONFIG.facetedCount)
-    setFacetedSharpness(DEFAULT_CONFIG.facetedSharpness)
-    setHammeredIntensity(DEFAULT_CONFIG.hammeredIntensity)
-    setHammeredScale(DEFAULT_CONFIG.hammeredScale)
-    setOpenGapWidth(DEFAULT_CONFIG.openGapWidth)
-    setOpenEdgeTreatment(DEFAULT_CONFIG.openEdgeTreatment)
-    setDiagonalGapWidth(DEFAULT_CONFIG.diagonalGapWidth)
+    setFacetedEdgeMode(DEFAULT_CONFIG.facetedEdgeMode)
+    setOpenOpeningMm(DEFAULT_CONFIG.openOpeningMm)
+    setOpenRoundedEdgeRadiusMm(DEFAULT_CONFIG.openRoundedEdgeRadiusMm)
+    setDiagonalOpeningMm(DEFAULT_CONFIG.diagonalOpeningMm)
     setDiagonalDirection(DEFAULT_CONFIG.diagonalDirection)
-    setDiagonalEdgeTreatment(DEFAULT_CONFIG.diagonalEdgeTreatment)
+    setDiagonalEdgeFinish(DEFAULT_CONFIG.diagonalEdgeFinish)
+    setDiagonalCutAngle(DEFAULT_CONFIG.diagonalCutAngle)
     setWoodSleeveWoodType(DEFAULT_CONFIG.woodSleeveWoodType)
-    setWoodSleeveThickness(DEFAULT_CONFIG.woodSleeveThickness)
     setWoodInlayWoodType(DEFAULT_CONFIG.woodInlayWoodType)
-    setWoodInlayWidth(DEFAULT_CONFIG.woodInlayWidth)
-    setWoodInlayDepth(DEFAULT_CONFIG.woodInlayDepth)
+    setWoodInlayWidthMm(DEFAULT_CONFIG.woodInlayWidthMm)
+    setWoodInlayChamfer(DEFAULT_CONFIG.woodInlayChamfer)
     setName(getDefaultName(language))
     setStatusMessage(language === "en" ? "Configuration reset." : "Konfiguration zurückgesetzt.")
   }
@@ -1504,133 +1838,133 @@ function App() {
             <div className="option-group">
               {style === "grooved" && (
                 <>
-                  <Field label={t.grooveCount} htmlFor={`${styleOptionsGroupId}-grooved-count`}>
-                    <select
+                  <Field label={`${t.grooveCount}: ${groovedCount} / ${maxGrooveCount}`} htmlFor={`${styleOptionsGroupId}-grooved-count`}>
+                    <input
                       id={`${styleOptionsGroupId}-grooved-count`}
-                      className="field-input"
+                      className="range-input"
+                      type="range"
+                      min="1"
+                      max={maxGrooveCount}
+                      step="1"
                       value={groovedCount}
-                      onChange={(event) => setGroovedCount(event.target.value as GrooveCount)}
-                    >
-                      <option value="single">{language === "en" ? "Single" : "Einzeln"}</option>
-                      <option value="double">{language === "en" ? "Double" : "Doppelt"}</option>
-                      <option value="triple">{language === "en" ? "Triple" : "Dreifach"}</option>
-                    </select>
+                      onChange={(event) => setGroovedCount(Number(event.target.value))}
+                    />
                   </Field>
-                  <Field label={t.grooveDepth} htmlFor={`${styleOptionsGroupId}-grooved-depth`}>
-                    <select
-                      id={`${styleOptionsGroupId}-grooved-depth`}
-                      className="field-input"
-                      value={groovedDepth}
-                      onChange={(event) => setGroovedDepth(event.target.value as GrooveDepth)}
-                    >
-                      <option value="subtle">{language === "en" ? "Subtle" : "Fein"}</option>
-                      <option value="medium">{language === "en" ? "Medium" : "Mittel"}</option>
-                      <option value="deep">{language === "en" ? "Deep" : "Tief"}</option>
-                    </select>
-                  </Field>
-                  <Field label={t.grooveWidth} htmlFor={`${styleOptionsGroupId}-grooved-width`}>
-                    <select
+                  <Field label={`${t.grooveWidth}: ${formatValue(language, groovedWidthMm)} mm`} htmlFor={`${styleOptionsGroupId}-grooved-width`}>
+                    <input
                       id={`${styleOptionsGroupId}-grooved-width`}
-                      className="field-input"
-                      value={groovedWidth}
-                      onChange={(event) => setGroovedWidth(event.target.value as GrooveWidth)}
-                    >
-                      <option value="fine">{language === "en" ? "Fine" : "Fein"}</option>
-                      <option value="medium">{language === "en" ? "Medium" : "Mittel"}</option>
-                      <option value="wide">{language === "en" ? "Wide" : "Breit"}</option>
-                    </select>
+                      className="range-input"
+                      type="range"
+                      min="0.4"
+                      max="2.0"
+                      step="0.1"
+                      value={groovedWidthMm}
+                      onChange={(event) => setGroovedWidthMm(Number(event.target.value))}
+                    />
                   </Field>
+                  <Field label={`${t.grooveDepth}: ${formatValue(language, groovedDepthMm)} mm`} htmlFor={`${styleOptionsGroupId}-grooved-depth`}>
+                    <input
+                      id={`${styleOptionsGroupId}-grooved-depth`}
+                      className="range-input"
+                      type="range"
+                      min="0.1"
+                      max="0.5"
+                      step="0.1"
+                      value={groovedDepthMm}
+                      onChange={(event) => setGroovedDepthMm(Number(event.target.value))}
+                    />
+                  </Field>
+                  {groovedCount > 1 && (
+                    <Field label={`${t.outerCrest}: ${formatValue(language, groovedOuterCrestMm)} mm`} htmlFor={`${styleOptionsGroupId}-grooved-crest`}>
+                      <input
+                        id={`${styleOptionsGroupId}-grooved-crest`}
+                        className="range-input"
+                        type="range"
+                        min="0.4"
+                        max="5.0"
+                        step="0.1"
+                        value={groovedOuterCrestMm}
+                        onChange={(event) => setGroovedOuterCrestMm(Number(event.target.value))}
+                      />
+                    </Field>
+                  )}
+                  <p className="field-hint">{t.grooveHint}</p>
                 </>
               )}
 
               {style === "faceted" && (
                 <>
-                  <Field label={t.facetCount} htmlFor={`${styleOptionsGroupId}-faceted-count`}>
-                    <select
+                  <Field label={`${t.facetCount}: ${facetedCount} ${language === "en" ? "facets" : "Facetten"} · ${formatValue(language, facetedArcLengthMm)} mm ${language === "en" ? "per facet" : "pro Facette"}`} htmlFor={`${styleOptionsGroupId}-faceted-count`}>
+                    <input
                       id={`${styleOptionsGroupId}-faceted-count`}
-                      className="field-input"
+                      className="range-input"
+                      type="range"
+                      min="10"
+                      max="20"
+                      step="1"
                       value={facetedCount}
-                      onChange={(event) => setFacetedCount(event.target.value as FacetCount)}
-                    >
-                      <option value="subtle">{language === "en" ? "Subtle" : "Fein"}</option>
-                      <option value="classic">{language === "en" ? "Classic" : "Klassisch"}</option>
-                      <option value="bold">{language === "en" ? "Bold" : "Markant"}</option>
-                    </select>
+                      onChange={(event) => setFacetedCount(Number(event.target.value))}
+                    />
                   </Field>
-                  <Field label={t.facetSharpness} htmlFor={`${styleOptionsGroupId}-faceted-sharpness`}>
+                  <Field label={t.facetEdgeMode} htmlFor={`${styleOptionsGroupId}-faceted-edge-mode`}>
                     <select
-                      id={`${styleOptionsGroupId}-faceted-sharpness`}
+                      id={`${styleOptionsGroupId}-faceted-edge-mode`}
                       className="field-input"
-                      value={facetedSharpness}
-                      onChange={(event) => setFacetedSharpness(event.target.value as FacetedSharpness)}
+                      value={facetedEdgeMode}
+                      onChange={(event) => setFacetedEdgeMode(event.target.value as FacetedEdgeMode)}
                     >
-                      <option value="soft">{language === "en" ? "Soft" : "Sanft"}</option>
-                      <option value="crisp">{language === "en" ? "Crisp" : "Klar"}</option>
+                      <option value="soft">{t.facetSoft}</option>
+                      <option value="hard">{t.facetHard}</option>
                     </select>
                   </Field>
                 </>
               )}
 
-              {style === "hammered" && (
-                <>
-                  <Field label={t.hammeredIntensity} htmlFor={`${styleOptionsGroupId}-hammered-intensity`}>
-                    <select
-                      id={`${styleOptionsGroupId}-hammered-intensity`}
-                      className="field-input"
-                      value={hammeredIntensity}
-                      onChange={(event) => setHammeredIntensity(event.target.value as HammeredIntensity)}
-                    >
-                      <option value="subtle">{language === "en" ? "Subtle" : "Fein"}</option>
-                      <option value="medium">{language === "en" ? "Medium" : "Mittel"}</option>
-                      <option value="pronounced">{language === "en" ? "Pronounced" : "Ausgeprägt"}</option>
-                    </select>
-                  </Field>
-                  <Field label={t.hammeredScale} htmlFor={`${styleOptionsGroupId}-hammered-scale`}>
-                    <select
-                      id={`${styleOptionsGroupId}-hammered-scale`}
-                      className="field-input"
-                      value={hammeredScale}
-                      onChange={(event) => setHammeredScale(event.target.value as HammeredScale)}
-                    >
-                      <option value="fine">{language === "en" ? "Fine" : "Fein"}</option>
-                      <option value="medium">{language === "en" ? "Medium" : "Mittel"}</option>
-                      <option value="coarse">{language === "en" ? "Coarse" : "Grob"}</option>
-                    </select>
-                  </Field>
-                </>
-              )}
+              {style === "hammered" && <p className="field-hint">{t.hammeredHelper}</p>}
 
               {style === "open" && (
                 <>
-                  <Field label={t.openGapWidth} htmlFor={`${styleOptionsGroupId}-open-gap-width`}>
-                    <select
-                      id={`${styleOptionsGroupId}-open-gap-width`}
-                      className="field-input"
-                      value={openGapWidth}
-                      onChange={(event) => setOpenGapWidth(event.target.value as OpenGapWidth)}
-                    >
-                      <option value="subtle">{language === "en" ? "Subtle" : "Fein"}</option>
-                      <option value="medium">{language === "en" ? "Medium" : "Mittel"}</option>
-                      <option value="bold">{language === "en" ? "Bold" : "Markant"}</option>
-                    </select>
+                  <Field label={`${t.openOpening}: ${formatValue(language, openOpeningMm)} mm`} htmlFor={`${styleOptionsGroupId}-open-opening`}>
+                    <input
+                      id={`${styleOptionsGroupId}-open-opening`}
+                      className="range-input"
+                      type="range"
+                      min="3"
+                      max="8"
+                      step="0.1"
+                      value={openOpeningMm}
+                      onChange={(event) => setOpenOpeningMm(Number(event.target.value))}
+                    />
                   </Field>
-                  <Field label={t.openEdgeTreatment} htmlFor={`${styleOptionsGroupId}-open-edge-treatment`}>
-                    <select
-                      id={`${styleOptionsGroupId}-open-edge-treatment`}
-                      className="field-input"
-                      value={openEdgeTreatment}
-                      onChange={(event) => setOpenEdgeTreatment(event.target.value as OpenEdgeTreatment)}
-                    >
-                      <option value="razor">{language === "en" ? "Razor" : "Scharf"}</option>
-                      <option value="softened">{language === "en" ? "Softened" : "Abgemildert"}</option>
-                      <option value="rounded">{language === "en" ? "Rounded" : "Abgerundet"}</option>
-                    </select>
+                  <Field label={`${t.openRoundedEdgeRadius}: ${formatValue(language, openRoundedEdgeRadiusMm)} mm`} htmlFor={`${styleOptionsGroupId}-open-rounded-edge`}>
+                    <input
+                      id={`${styleOptionsGroupId}-open-rounded-edge`}
+                      className="range-input"
+                      type="range"
+                      min="0"
+                      max="1.5"
+                      step="0.1"
+                      value={openRoundedEdgeRadiusMm}
+                      onChange={(event) => setOpenRoundedEdgeRadiusMm(Number(event.target.value))}
+                    />
                   </Field>
                 </>
               )}
 
               {style === "diagonal" && (
                 <>
+                  <Field label={`${t.diagonalOpening}: ${formatValue(language, diagonalOpeningMm)} mm`} htmlFor={`${styleOptionsGroupId}-diagonal-opening`}>
+                    <input
+                      id={`${styleOptionsGroupId}-diagonal-opening`}
+                      className="range-input"
+                      type="range"
+                      min="3"
+                      max="8"
+                      step="0.1"
+                      value={diagonalOpeningMm}
+                      onChange={(event) => setDiagonalOpeningMm(Number(event.target.value))}
+                    />
+                  </Field>
                   <Field label={t.diagonalDirection} htmlFor={`${styleOptionsGroupId}-diagonal-direction`}>
                     <select
                       id={`${styleOptionsGroupId}-diagonal-direction`}
@@ -1642,15 +1976,27 @@ function App() {
                       <option value="rightRising">{language === "en" ? "Right rising" : "Rechts steigend"}</option>
                     </select>
                   </Field>
-                  <Field label={t.diagonalEdgeTreatment} htmlFor={`${styleOptionsGroupId}-diagonal-edge-treatment`}>
+                  <Field label={t.diagonalEdgeFinish} htmlFor={`${styleOptionsGroupId}-diagonal-edge-finish`}>
                     <select
-                      id={`${styleOptionsGroupId}-diagonal-edge-treatment`}
+                      id={`${styleOptionsGroupId}-diagonal-edge-finish`}
                       className="field-input"
-                      value={diagonalEdgeTreatment}
-                      onChange={(event) => setDiagonalEdgeTreatment(event.target.value as DiagonalEdgeTreatment)}
+                      value={diagonalEdgeFinish}
+                      onChange={(event) => setDiagonalEdgeFinish(event.target.value as DiagonalEdgeTreatment)}
                     >
                       <option value="razor">{language === "en" ? "Razor" : "Scharf"}</option>
-                      <option value="softened">{language === "en" ? "Softened" : "Abgemildert"}</option>
+                      <option value="softened">{language === "en" ? "Softened · 0.4 mm bevel" : "Abgemildert · 0,4 mm Fase"}</option>
+                    </select>
+                  </Field>
+                  <Field label={`${t.diagonalCutAngle}: ${getDiagonalCutAngleDegrees(diagonalCutAngle)}°`} htmlFor={`${styleOptionsGroupId}-diagonal-cut-angle`}>
+                    <select
+                      id={`${styleOptionsGroupId}-diagonal-cut-angle`}
+                      className="field-input"
+                      value={diagonalCutAngle}
+                      onChange={(event) => setDiagonalCutAngle(event.target.value as DiagonalCutAngle)}
+                    >
+                      <option value="gentle">{language === "en" ? "Gentle · 20°" : "Sanft · 20°"}</option>
+                      <option value="standard">{language === "en" ? "Standard · 35°" : "Standard · 35°"}</option>
+                      <option value="steep">{language === "en" ? "Steep · 50°" : "Steil · 50°"}</option>
                     </select>
                   </Field>
                 </>
@@ -1671,18 +2017,7 @@ function App() {
                       <option value="maple">{language === "en" ? "Maple" : "Ahorn"}</option>
                     </select>
                   </Field>
-                  <Field label={t.sleeveThickness} htmlFor={`${styleOptionsGroupId}-wood-sleeve-thickness`}>
-                    <select
-                      id={`${styleOptionsGroupId}-wood-sleeve-thickness`}
-                      className="field-input"
-                      value={woodSleeveThickness}
-                      onChange={(event) => setWoodSleeveThickness(event.target.value as SleeveThickness)}
-                    >
-                      <option value="slim">{language === "en" ? "Slim" : "Schmal"}</option>
-                      <option value="medium">{language === "en" ? "Medium" : "Mittel"}</option>
-                      <option value="bold">{language === "en" ? "Bold" : "Markant"}</option>
-                    </select>
-                  </Field>
+                  <p className="field-hint">{t.sleeveHelper}</p>
                 </>
               )}
 
@@ -1701,30 +2036,30 @@ function App() {
                       <option value="maple">{language === "en" ? "Maple" : "Ahorn"}</option>
                     </select>
                   </Field>
-                  <Field label={t.inlayWidth} htmlFor={`${styleOptionsGroupId}-wood-inlay-width`}>
-                    <select
+                  <Field label={`${t.inlayWidth}: ${formatValue(language, woodInlayWidthMm)} mm`} htmlFor={`${styleOptionsGroupId}-wood-inlay-width`}>
+                    <input
                       id={`${styleOptionsGroupId}-wood-inlay-width`}
-                      className="field-input"
-                      value={woodInlayWidth}
-                      onChange={(event) => setWoodInlayWidth(event.target.value as InlayWidth)}
-                    >
-                      <option value="narrow">{language === "en" ? "Narrow" : "Schmal"}</option>
-                      <option value="medium">{language === "en" ? "Medium" : "Mittel"}</option>
-                      <option value="wide">{language === "en" ? "Wide" : "Breit"}</option>
-                    </select>
+                      className="range-input"
+                      type="range"
+                      min={Math.min(2, woodInlayWidthMm)}
+                      max={Math.max(2, bandWidth - 2)}
+                      step="0.1"
+                      value={woodInlayWidthMm}
+                      onChange={(event) => setWoodInlayWidthMm(Number(event.target.value))}
+                    />
                   </Field>
-                  <Field label={t.inlayDepth} htmlFor={`${styleOptionsGroupId}-wood-inlay-depth`}>
+                  <Field label={t.chamfer} htmlFor={`${styleOptionsGroupId}-wood-inlay-chamfer`}>
                     <select
-                      id={`${styleOptionsGroupId}-wood-inlay-depth`}
+                      id={`${styleOptionsGroupId}-wood-inlay-chamfer`}
                       className="field-input"
-                      value={woodInlayDepth}
-                      onChange={(event) => setWoodInlayDepth(event.target.value as InlayDepth)}
+                      value={woodInlayChamfer ? "yes" : "no"}
+                      onChange={(event) => setWoodInlayChamfer(event.target.value === "yes")}
                     >
-                      <option value="shallow">{language === "en" ? "Shallow" : "Flach"}</option>
-                      <option value="medium">{language === "en" ? "Medium" : "Mittel"}</option>
-                      <option value="deep">{language === "en" ? "Deep" : "Tief"}</option>
+                      <option value="yes">{t.chamferOn}</option>
+                      <option value="no">{t.chamferOff}</option>
                     </select>
                   </Field>
+                  <p className="field-hint">{t.inlayHelper}</p>
                 </>
               )}
             </div>
@@ -1781,10 +2116,11 @@ function App() {
       </aside>
 
       <main className="app-main">
-        <div className="preview-stack">
-          <section className="main-view-card" aria-label={t.preview}>
-            <div className="hero-aspect">
-              <Canvas camera={heroCamera} shadows dpr={heroDpr} frameloop={autoRotate ? "always" : "demand"}>
+        <div className="preview-sticky">
+          <div className="preview-stack">
+            <section className="main-view-card" aria-label={t.preview}>
+              <div className="hero-aspect">
+                <Canvas camera={heroCamera} shadows dpr={heroDpr} frameloop={autoRotate ? "always" : "demand"}>
                 <StudioScene ringSize={ringSize} bandWidth={bandWidth} style={style} finish={finish} heroRotation={heroRotation} styleSettings={styleSettings} theme={theme} reducedDetail={reducedDetail} />
                 <OrbitControls
                   key="orbit-controls"
@@ -1823,6 +2159,7 @@ function App() {
             </section>
           </section>
         </div>
+      </div>
       </main>
 
       {confirmAction && (
