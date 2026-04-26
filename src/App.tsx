@@ -137,10 +137,12 @@ type StyleSettings = {
 }
 
 type SubmitState = "idle" | "sending" | "success" | "error"
+type ThemeMode = "light" | "dark"
 
 const STORAGE_KEY = "ring-config"
 const ACCESS_KEY = "ring-config-access"
 const ACCESS_CODE = "4827"
+const THEME_KEY = "ring-config-theme"
 const FORMSPREE_ENDPOINT = "https://formspree.io/f/mzdywkpb"
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -520,7 +522,7 @@ function createOuterStripGeometry(
   return createLatheGeometry(profile, style, styleSettings, Math.max(Math.abs(yMin), Math.abs(yMax)))
 }
 
-function createSoftWindowTexture() {
+function createSoftWindowTexture(theme: ThemeMode) {
   const canvas = document.createElement("canvas")
   canvas.width = 1024
   canvas.height = 1024
@@ -528,9 +530,15 @@ function createSoftWindowTexture() {
   if (!ctx) return null
 
   const bg = ctx.createLinearGradient(0, 0, 0, 1024)
-  bg.addColorStop(0, "#f3f0eb")
-  bg.addColorStop(0.55, "#f7f4ee")
-  bg.addColorStop(1, "#eee8df")
+  if (theme === "dark") {
+    bg.addColorStop(0, "#221e1a")
+    bg.addColorStop(0.55, "#191613")
+    bg.addColorStop(1, "#14110f")
+  } else {
+    bg.addColorStop(0, "#f3f0eb")
+    bg.addColorStop(0.55, "#f7f4ee")
+    bg.addColorStop(1, "#eee8df")
+  }
   ctx.fillStyle = bg
   ctx.fillRect(0, 0, 1024, 1024)
 
@@ -545,7 +553,7 @@ function createSoftWindowTexture() {
   ] as const
 
   for (const [x, y, w, h, a] of windows) {
-    ctx.fillStyle = `rgba(255,255,255,${a})`
+    ctx.fillStyle = theme === "dark" ? `rgba(255,246,234,${Math.max(0.1, a * 0.28)})` : `rgba(255,255,255,${a})`
     ctx.fillRect(x, y, w, h)
   }
 
@@ -782,8 +790,8 @@ function FixedCamera({ position, up }: { position: [number, number, number]; up:
   return null
 }
 
-function SoftWindowBackdrop() {
-  const texture = useMemo(() => createSoftWindowTexture(), [])
+function SoftWindowBackdrop({ theme }: { theme: ThemeMode }) {
+  const texture = useMemo(() => createSoftWindowTexture(theme), [theme])
 
   useEffect(() => {
     return () => texture?.dispose()
@@ -794,7 +802,7 @@ function SoftWindowBackdrop() {
   return (
     <mesh position={[0, 1.25, -3.6]} scale={[7.8, 5.8, 1]}>
       <planeGeometry args={[1, 1]} />
-      <meshBasicMaterial map={texture} transparent opacity={0.92} depthWrite={false} toneMapped={false} />
+      <meshBasicMaterial map={texture} transparent opacity={theme === "dark" ? 0.62 : 0.92} depthWrite={false} toneMapped={false} />
     </mesh>
   )
 }
@@ -890,6 +898,7 @@ function OrthoView({
   finish,
   language,
   styleSettings,
+  theme,
   className,
 }: {
   title: string
@@ -902,8 +911,14 @@ function OrthoView({
   finish: FinishId
   language: Language
   styleSettings: StyleSettings
+  theme: ThemeMode
   className?: string
 }) {
+  const orthoBackground = theme === "dark" ? "#141210" : "#f4f1ec"
+  const gridMain = theme === "dark" ? "#3d3732" : "#d8d0c6"
+  const gridSoft = theme === "dark" ? "#221e1b" : "#e8e2da"
+  const hemiGround = theme === "dark" ? "#090807" : "#271d16"
+
   return (
     <section className={`ortho-card ${className ?? ""}`.trim()} aria-label={title}>
       <div className="view-label">{title}</div>
@@ -912,7 +927,7 @@ function OrthoView({
       <Canvas
         orthographic
         camera={{
-          zoom: kind === "top" ? 72 / (ringSize / 18) : 105 / (ringSize / 18),
+          zoom: kind === "top" ? 72 / (ringSize / 18) : 88 / (ringSize / 18),
           position: cameraPosition,
           near: 0.1,
           far: 100,
@@ -921,12 +936,12 @@ function OrthoView({
         shadows
       >
         <FixedCamera position={cameraPosition} up={cameraUp} />
-        <color attach="background" args={["#f4f1ec"]} />
-        <ambientLight intensity={0.8} />
-        <hemisphereLight args={["#fff1dc", "#271d16", 0.65]} />
+        <color attach="background" args={[orthoBackground]} />
+        <ambientLight intensity={theme === "dark" ? 0.92 : 0.8} />
+        <hemisphereLight args={["#fff1dc", hemiGround, theme === "dark" ? 0.82 : 0.65]} />
         <directionalLight position={[3, 5, 4]} intensity={1.5} color="#fff4e3" />
         <directionalLight position={[-4, 1, 2]} intensity={1.1} color="#d8e1f2" />
-        <gridHelper args={[4, 12, "#d8d0c6", "#e8e2da"]} />
+        <gridHelper args={[4, 12, gridMain, gridSoft]} />
         <Ring size={ringSize} width={bandWidth} style={style} finish={finish} previewRotation={[0, 0, 0]} styleSettings={styleSettings} />
       </Canvas>
     </section>
@@ -940,6 +955,7 @@ function StudioScene({
   finish,
   heroRotation,
   styleSettings,
+  theme,
 }: {
   ringSize: number
   bandWidth: number
@@ -947,11 +963,17 @@ function StudioScene({
   finish: FinishId
   heroRotation: [number, number, number]
   styleSettings: StyleSettings
+  theme: ThemeMode
 }) {
+  const heroBackground = theme === "dark" ? "#161311" : "#f4f1ec"
+  const heroFog = theme === "dark" ? "#161311" : "#f4f1ec"
+  const floorColor = theme === "dark" ? "#1d1916" : "#eee9e2"
+  const contactShadowColor = theme === "dark" ? "#0b0908" : "#9f9890"
+
   return (
     <>
-      <color attach="background" args={["#f4f1ec"]} />
-      <fog attach="fog" args={["#f4f1ec", 6, 12]} />
+      <color attach="background" args={[heroBackground]} />
+      <fog attach="fog" args={[heroFog, 6, 12]} />
 
       <Environment background={false} resolution={2048}>
         <Lightformer form="rect" intensity={8} color="#ffffff" scale={[14, 9, 1]} position={[0, 0.8, 4.2]} rotation={[0, Math.PI, 0]} />
@@ -961,10 +983,10 @@ function StudioScene({
         <Lightformer form="rect" intensity={7} color="#ffffff" scale={[10, 4, 1]} position={[0, 2.15, 2.7]} rotation={[0.28, Math.PI, 0]} />
       </Environment>
 
-      <ambientLight intensity={0.4} color="#ffffff" />
-      <hemisphereLight args={["#ffffff", "#e6dfd6", 0.75]} />
+      <ambientLight intensity={theme === "dark" ? 0.5 : 0.4} color="#ffffff" />
+      <hemisphereLight args={["#ffffff", theme === "dark" ? "#2a241f" : "#e6dfd6", theme === "dark" ? 0.92 : 0.75]} />
 
-      <SoftWindowBackdrop />
+      <SoftWindowBackdrop theme={theme} />
 
       <GroundedHeroRing
         ringSize={ringSize}
@@ -980,16 +1002,16 @@ function StudioScene({
         <MeshReflectorMaterial
           blur={[360, 110]}
           resolution={2048}
-          mirror={0.68}
+          mirror={theme === "dark" ? 0.42 : 0.68}
           mixBlur={1.2}
-          mixStrength={1.95}
-          mixContrast={1.2}
-          roughness={0.16}
+          mixStrength={theme === "dark" ? 1.35 : 1.95}
+          mixContrast={theme === "dark" ? 0.96 : 1.2}
+          roughness={theme === "dark" ? 0.22 : 0.16}
           metalness={0}
-          color="#eee9e2"
-          depthScale={0.24}
+          color={floorColor}
+          depthScale={theme === "dark" ? 0.18 : 0.24}
           minDepthThreshold={0.4}
-          maxDepthThreshold={1.7}
+          maxDepthThreshold={theme === "dark" ? 1.45 : 1.7}
           reflectorOffset={0.01}
         />
       </mesh>
@@ -1000,7 +1022,7 @@ function StudioScene({
         scale={5.8}
         blur={4.4}
         far={2.4}
-        color="#9f9890"
+        color={contactShadowColor}
         resolution={1024}
       />
     </>
@@ -1036,6 +1058,14 @@ function App() {
   const [accessInput, setAccessInput] = useState("")
   const [accessError, setAccessError] = useState("")
   const [language, setLanguage] = useState<Language>(initialConfig.language)
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    if (typeof window === "undefined") return "light"
+
+    const savedTheme = window.localStorage.getItem(THEME_KEY)
+    if (savedTheme === "light" || savedTheme === "dark") return savedTheme
+
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
+  })
   const [ringSize, setRingSize] = useState(initialConfig.ringSize)
   const [bandWidth, setBandWidth] = useState(initialConfig.bandWidth)
   const [style, setStyle] = useState<StyleId>(initialConfig.style)
@@ -1129,6 +1159,12 @@ function App() {
   }, [language, t.title])
 
   useEffect(() => {
+    document.body.dataset.theme = theme
+    document.documentElement.style.colorScheme = theme
+    window.localStorage.setItem(THEME_KEY, theme)
+  }, [theme])
+
+  useEffect(() => {
     if (typeof window === "undefined") return
 
     const mediaQuery = window.matchMedia("(max-width: 768px)")
@@ -1143,7 +1179,7 @@ function App() {
   const selectedStyle = styles.find((item) => item.id === style) ?? styles[0]
   const selectedFinish = finishes.find((item) => item.id === finish) ?? finishes[0]
   const circumference = Math.PI * ringSize
-  const heroCamera = isMobileLayout ? { position: [0, 0.22, 5.6] as [number, number, number], fov: 32 } : { position: [0, 0.28, 7.45] as [number, number, number], fov: 27 }
+  const heroCamera = isMobileLayout ? { position: [0, 0.2, 5.2] as [number, number, number], fov: 31 } : { position: [0, 0.28, 7.45] as [number, number, number], fov: 27 }
   const heroTarget: [number, number, number] = isMobileLayout ? [0.02, -0.12, 0] : [0.02, -0.12, 0]
 
   const styleSettings: StyleSettings = {
@@ -1397,11 +1433,27 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell theme-${theme}`}>
+      <button
+        type="button"
+        className="topbar-toggle theme-toggle"
+        onClick={() => setTheme((current) => (current === "light" ? "dark" : "light"))}
+        aria-label={language === "en" ? "Toggle dark mode" : "Dunkelmodus umschalten"}
+      >
+        {theme === "light" ? (
+          <svg aria-hidden="true" viewBox="0 0 24 24" className="topbar-icon">
+            <path fill="currentColor" d="M12 4.75a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0V5.5a.75.75 0 0 1 .75-.75Zm0 10.5a3.25 3.25 0 1 0 0-6.5 3.25 3.25 0 0 0 0 6.5Zm6.25-4a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 0 1.5H19a.75.75 0 0 1-.75-.75Zm-14 0a.75.75 0 0 1 .75-.75H6.5a.75.75 0 0 1 0 1.5H5a.75.75 0 0 1-.75-.75Zm10.2 5.45a.75.75 0 0 1 1.06 0l1.06 1.06a.75.75 0 0 1-1.06 1.06l-1.06-1.06a.75.75 0 0 1 0-1.06Zm-9.9 0a.75.75 0 0 1 1.06 1.06L4.85 18.82a.75.75 0 1 1-1.06-1.06l1.06-1.06Zm11.02-10.96a.75.75 0 0 1 1.06-1.06l1.06 1.06a.75.75 0 1 1-1.06 1.06l-1.06-1.06Zm-9.96 0L4.55 6.8A.75.75 0 0 1 3.49 5.74L4.55 4.68a.75.75 0 0 1 1.06 1.06ZM12 16.25a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0V17a.75.75 0 0 1 .75-.75Z" />
+          </svg>
+        ) : (
+          <svg aria-hidden="true" viewBox="0 0 24 24" className="topbar-icon">
+            <path fill="currentColor" d="M14.77 4.57a.75.75 0 0 1 .23.78 6.74 6.74 0 0 0-.43 2.39A6.75 6.75 0 0 0 21.32 14a6.7 6.7 0 0 0 1.5-.17.75.75 0 0 1 .78 1.14A10.5 10.5 0 1 1 13.63 3.8a.75.75 0 0 1 1.14.77Z" />
+          </svg>
+        )}
+      </button>
       <button
         id={languageButtonId}
         type="button"
-        className="language-toggle"
+        className="topbar-toggle language-toggle"
         onClick={() => setLanguage(language === "en" ? "de" : "en")}
         aria-label={language === "en" ? "Switch language to German" : "Sprache auf Englisch wechseln"}
       >
@@ -1410,7 +1462,7 @@ function App() {
 
       <aside className="app-sidebar">
         <div className="sidebar-header">
-          <p className="eyebrow">{language === "en" ? "Custom titanium ring" : "Individueller Titanring"}</p>
+          <p className="eyebrow">{language === "en" ? "Custom stainless steel ring" : "Individueller Edelstahlring"}</p>
           <h1>{t.title}</h1>
           <p className="subtitle">{t.subtitle}</p>
         </div>
@@ -1722,13 +1774,19 @@ function App() {
         </PanelSection>
 
         <PanelSection title={t.actionSection}>
-          <div className="action-row">
-            <button type="button" className="action-button action-button-primary" onClick={saveConfig}>{t.save}</button>
-            <button type="button" className="action-button action-button-primary" onClick={downloadJson}>{t.download}</button>
-            <button type="button" className="action-button action-button-primary" onClick={() => void submitConfig()} disabled={submitState === "sending"}>{t.submit}</button>
-            <button type="button" className="action-button action-button-secondary" onClick={loadConfig}>{t.load}</button>
-            <button type="button" className="action-button action-button-secondary" onClick={resetConfig}>{t.reset}</button>
-            <button type="button" className="action-button action-button-secondary" onClick={() => void copyConfig()}>{t.copy}</button>
+          <div className="action-cluster">
+            <div className="action-row action-row-primary">
+              <button type="button" className="action-button action-button-emphasis" onClick={() => void submitConfig()} disabled={submitState === "sending"}>{t.submit}</button>
+            </div>
+            <div className="action-row action-row-secondary">
+              <button type="button" className="action-button action-button-primary" onClick={saveConfig}>{t.save}</button>
+              <button type="button" className="action-button action-button-primary" onClick={downloadJson}>{t.download}</button>
+            </div>
+            <div className="action-row action-row-utility">
+              <button type="button" className="action-button action-button-secondary" onClick={loadConfig}>{t.load}</button>
+              <button type="button" className="action-button action-button-secondary" onClick={resetConfig}>{t.reset}</button>
+              <button type="button" className="action-button action-button-secondary" onClick={() => void copyConfig()}>{t.copy}</button>
+            </div>
           </div>
         </PanelSection>
 
@@ -1750,7 +1808,7 @@ function App() {
           <section className="main-view-card" aria-label={t.preview}>
             <div className="hero-aspect">
               <Canvas camera={heroCamera} shadows dpr={[1, 2]}>
-                <StudioScene ringSize={ringSize} bandWidth={bandWidth} style={style} finish={finish} heroRotation={heroRotation} styleSettings={styleSettings} />
+                <StudioScene ringSize={ringSize} bandWidth={bandWidth} style={style} finish={finish} heroRotation={heroRotation} styleSettings={styleSettings} theme={theme} />
                 <OrbitControls
                   key="orbit-controls"
                   enableDamping={false}
@@ -1769,8 +1827,14 @@ function App() {
                 type="button"
                 className="hero-rotate-button"
                 onClick={() => setAutoRotate((current) => !current)}
+                aria-label={language === "en" ? "Toggle rotation" : "Rotation umschalten"}
               >
-                {autoRotate ? "Stop" : "Rotate"}
+                <svg aria-hidden="true" viewBox="0 0 24 24" className="hero-rotate-icon">
+                  <path
+                    d="M18.2 8.6A7 7 0 1 0 19 12h-2a5 5 0 1 1-1.4-3.5L13 11h7V4l-1.8 1.8Z"
+                    fill="currentColor"
+                  />
+                </svg>
               </button>
             </div>
           </section>
@@ -1782,8 +1846,8 @@ function App() {
             </div>
 
             <section className="ortho-grid">
-              <OrthoView title={t.topView} kind="top" cameraPosition={[0, 3, 0]} cameraUp={[0, 0, -1]} ringSize={ringSize} bandWidth={bandWidth} style={style} finish={finish} language={language} styleSettings={styleSettings} />
-              <OrthoView title={t.frontView} kind="front" cameraPosition={[0, 0, 3]} cameraUp={[0, 1, 0]} ringSize={ringSize} bandWidth={bandWidth} style={style} finish={finish} language={language} styleSettings={styleSettings} className="ortho-card-front" />
+              <OrthoView title={t.topView} kind="top" cameraPosition={[0, 3, 0]} cameraUp={[0, 0, -1]} ringSize={ringSize} bandWidth={bandWidth} style={style} finish={finish} language={language} styleSettings={styleSettings} theme={theme} />
+              <OrthoView title={t.frontView} kind="front" cameraPosition={[0, 0, 3]} cameraUp={[0, 1, 0]} ringSize={ringSize} bandWidth={bandWidth} style={style} finish={finish} language={language} styleSettings={styleSettings} theme={theme} className="ortho-card-front" />
             </section>
           </section>
         </div>
