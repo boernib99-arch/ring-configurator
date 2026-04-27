@@ -2,8 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import { MoonStar, RotateCcw, SendHorizontal, Share2, SunMedium } from "lucide-react"
 import * as THREE from "three"
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js"
-import { Canvas, useThree } from "@react-three/fiber"
+import { Canvas, useFrame, useThree } from "@react-three/fiber"
 import {
   ContactShadows,
   Environment,
@@ -79,6 +78,7 @@ type StoredConfig = {
   groovedWidth?: GrooveWidth | number
   groovedWidthMm?: number
   groovedDepthMm?: number
+  groovedEdgeSpaceMm?: number
   groovedOuterCrestMm?: number
   facetedCount?: FacetCount | number
   facetedSharpness?: FacetedSharpness
@@ -114,11 +114,11 @@ type AppConfig = {
   groovedWidthMm: number
   groovedDepthMm: number
   groovedCount: number
-  groovedOuterCrestMm: number
+  groovedEdgeSpaceMm: number
   facetedCount: number
   facetedEdgeMode: FacetedEdgeMode
   openOpeningMm: number
-  openRoundedEdgeRadiusMm: number
+  openGapEndRoundingMm: number
   diagonalOpeningMm: number
   diagonalDirection: DiagonalDirection
   diagonalEdgeFinish: DiagonalEdgeTreatment
@@ -127,6 +127,7 @@ type AppConfig = {
   woodInlayWoodType: WoodType
   woodInlayWidthMm: number
   woodInlayChamfer: boolean
+  outerEdgeChamferMm: number
 }
 
 type StyleSettings = {
@@ -135,11 +136,11 @@ type StyleSettings = {
   groovedWidthMm: number
   groovedDepthMm: number
   groovedCount: number
-  groovedOuterCrestMm: number
+  groovedEdgeSpaceMm: number
   facetedCount: number
   facetedEdgeMode: FacetedEdgeMode
   openOpeningMm: number
-  openRoundedEdgeRadiusMm: number
+  openGapEndRoundingMm: number
   diagonalOpeningMm: number
   diagonalDirection: DiagonalDirection
   diagonalEdgeFinish: DiagonalEdgeTreatment
@@ -148,11 +149,13 @@ type StyleSettings = {
   woodInlayWoodType: WoodType
   woodInlayWidthMm: number
   woodInlayChamfer: boolean
+  outerEdgeChamferMm: number
 }
 
 type SubmitState = "idle" | "sending" | "success" | "error"
 type ThemeMode = "light" | "dark"
 type ConfirmAction = "submit" | "reset" | null
+type LayoutMode = "ultraWide" | "desktop" | "laptop" | "tablet" | "mobile" | "compactMobile"
 
 const STORAGE_KEY = "ring-config"
 const ACCESS_KEY = "ring-config-access"
@@ -160,41 +163,42 @@ const ACCESS_CODE = "4827"
 const THEME_KEY = "ring-config-theme"
 const FORMSPREE_ENDPOINT = "https://formspree.io/f/mzdywkpb"
 const MM_TO_SCENE = 0.045
-const WALL_THICKNESS_MM = 4.4
+const WALL_THICKNESS_MM = 2.0
 const WOOD_SLEEVE_THICKNESS_MM = 0.5
 const WOOD_INLAY_EDGE_MM = 1.0
 const METAL_LIP_MM = 0.5
-const SOFTENED_DIAGONAL_BEVEL_MM = 0.4
 const FACET_MIN_ARC_MM = 2.2
+const MIN_GROOVE_METAL_GAP_MM = 0.4
 
 const DEFAULT_CONFIG: AppConfig = {
   language: "en",
   ringSize: 18.1,
-  bandWidth: 6,
+  bandWidth: 7,
   style: "simple",
-  finish: "normal",
+  finish: "polished",
   name: "My Ring",
-  groovedWidthMm: 0.8,
-  groovedDepthMm: 0.3,
-  groovedCount: 3,
-  groovedOuterCrestMm: 1,
+  groovedWidthMm: 1,
+  groovedDepthMm: 0.5,
+  groovedCount: 2,
+  groovedEdgeSpaceMm: 1.5,
   facetedCount: 14,
   facetedEdgeMode: "hard",
   openOpeningMm: 5,
-  openRoundedEdgeRadiusMm: 0.8,
+  openGapEndRoundingMm: 0.8,
   diagonalOpeningMm: 5,
   diagonalDirection: "rightRising",
   diagonalEdgeFinish: "softened",
   diagonalCutAngle: "standard",
   woodSleeveWoodType: "walnut",
   woodInlayWoodType: "walnut",
-  woodInlayWidthMm: 3,
+  woodInlayWidthMm: 5,
   woodInlayChamfer: true,
+  outerEdgeChamferMm: 0.6,
 }
 
-const DEFAULT_HERO_ROTATION: [number, number, number] = [-0.48, -0.42, -0.32]
-const HERO_FLOOR_Y = -0.82
-const HERO_FLOOR_CLEARANCE = 0.012
+const DEFAULT_HERO_ROTATION: [number, number, number] = [-0.38, -0.58, -0.18]
+const HERO_FLOOR_Y = -1.08
+const HERO_FLOOR_CLEARANCE = 0.003
 
 const styles: StyleOption[] = [
   { id: "simple", en: "Simple", de: "Simpel", descEn: "Clean flat-sided metal band", descDe: "Glattes, schnörkelloses Metallband" },
@@ -209,9 +213,9 @@ const styles: StyleOption[] = [
 ]
 
 const finishes: FinishOption[] = [
-  { id: "normal", en: "Normal", de: "Normal", colour: "#d7d8da", roughness: 0.24, metalness: 0.88, envMapIntensity: 1.25, clearcoat: 0.62, sheen: 0.08 },
+  { id: "normal", en: "Normal", de: "Normal", colour: "#e8e3d8", roughness: 0.16, metalness: 1, envMapIntensity: 2.2, clearcoat: 1, sheen: 0.06 },
   { id: "matte", en: "Matte", de: "Matt", colour: "#cfd1d2", roughness: 0.58, metalness: 0.72, envMapIntensity: 0.92, clearcoat: 0.32, sheen: 0.05 },
-  { id: "polished", en: "Polished", de: "Poliert", colour: "#fbfbf7", roughness: 0.14, metalness: 1, envMapIntensity: 1.55, clearcoat: 1, sheen: 0 },
+  { id: "polished", en: "Polished", de: "Poliert", colour: "#fffaf0", roughness: 0.07, metalness: 1, envMapIntensity: 2.8, clearcoat: 1, sheen: 0 },
   { id: "brushed", en: "Brushed", de: "Gebürstet", colour: "#d5d7d9", roughness: 0.17, envMapIntensity: 1.95, clearcoat: 0.88, anisotropy: 0.72, sheen: 0.12 },
   { id: "oxidised", en: "Oxidised", de: "Oxidiert", colour: "#617283", roughness: 0.3, metalness: 0.92, envMapIntensity: 1.28, clearcoat: 0.55, sheen: 0.05 },
 ]
@@ -244,6 +248,12 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
 }
 
+function snapToNearestSize(value: number) {
+  return sizes.reduce((closest, option) =>
+    Math.abs(option.diameter - value) < Math.abs(closest.diameter - value) ? option : closest
+  ).diameter
+}
+
 function getCircumferenceMm(diameterMm: number) {
   return Math.PI * diameterMm
 }
@@ -252,42 +262,51 @@ function getCentreRadiusMm(diameterMm: number) {
   return diameterMm / 2 + WALL_THICKNESS_MM / 2
 }
 
-function getMiddleCrestMm(grooveWidthMm: number) {
-  return clamp(grooveWidthMm * 0.75, 0.4, 1.2)
+function getMaxGrooveCount(bandWidthMm: number, grooveWidthMm: number, edgeSpaceMm: number) {
+  const usableWidthMm = Math.max(0, bandWidthMm - 2 * edgeSpaceMm)
+  return Math.max(1, Math.floor((usableWidthMm + MIN_GROOVE_METAL_GAP_MM) / (grooveWidthMm + MIN_GROOVE_METAL_GAP_MM)))
 }
 
-function getMaxGrooveCount(bandWidthMm: number, grooveWidthMm: number, outerCrestMm: number) {
-  const safeOuterCrestMm = Math.max(outerCrestMm, grooveWidthMm * 0.8)
-  const availableWidthMm = Math.max(0, bandWidthMm - 2 * safeOuterCrestMm)
-  const middleCrestMm = getMiddleCrestMm(grooveWidthMm)
-  let maxCount = 0
+function getGrooveLayoutMm(bandWidthMm: number, grooveWidthMm: number, grooveCount: number, edgeSpaceMm: number) {
+  const usableWidthMm = Math.max(0, bandWidthMm - 2 * edgeSpaceMm)
+  let clampedCount = clamp(Math.round(grooveCount), 1, getMaxGrooveCount(bandWidthMm, grooveWidthMm, edgeSpaceMm))
+  const centers: number[] = []
+  const intervals: Array<{ startMm: number; endMm: number; centerMm: number }> = []
 
-  for (let count = 1; count <= 12; count += 1) {
-    const totalWidthNeededMm = count * grooveWidthMm + (count - 1) * middleCrestMm
-    if (totalWidthNeededMm <= availableWidthMm + 1e-6) {
-      maxCount = count
-    }
+  while (
+    clampedCount > 1 &&
+    (usableWidthMm < clampedCount * grooveWidthMm ||
+      (usableWidthMm - clampedCount * grooveWidthMm) / (clampedCount - 1) < MIN_GROOVE_METAL_GAP_MM)
+  ) {
+    clampedCount -= 1
   }
 
-  return Math.max(1, maxCount)
-}
+  if (clampedCount === 1) {
+    centers.push(0)
+    intervals.push({
+      startMm: -grooveWidthMm / 2,
+      endMm: grooveWidthMm / 2,
+      centerMm: 0,
+    })
+  } else {
+    const totalGrooveWidthMm = clampedCount * grooveWidthMm
+    const innerGapMm = (usableWidthMm - totalGrooveWidthMm) / (clampedCount - 1)
+    const firstGrooveStartMm = -bandWidthMm / 2 + edgeSpaceMm
 
-function getGrooveLayoutMm(bandWidthMm: number, grooveWidthMm: number, grooveCount: number, outerCrestMm: number) {
-  const middleCrestMm = getMiddleCrestMm(grooveWidthMm)
-  const totalWidthNeededMm = grooveCount * grooveWidthMm + (grooveCount - 1) * middleCrestMm
-  const layoutStartMm = -totalWidthNeededMm / 2
-  const centers: number[] = []
-
-  for (let index = 0; index < grooveCount; index += 1) {
-    const grooveStartMm = layoutStartMm + index * (grooveWidthMm + middleCrestMm)
-    centers.push(grooveStartMm + grooveWidthMm / 2)
+    for (let index = 0; index < clampedCount; index += 1) {
+      const startMm = firstGrooveStartMm + index * (grooveWidthMm + innerGapMm)
+      const endMm = startMm + grooveWidthMm
+      const centerMm = (startMm + endMm) / 2
+      centers.push(centerMm)
+      intervals.push({ startMm, endMm, centerMm })
+    }
   }
 
   return {
     centers,
-    middleCrestMm,
-    totalWidthNeededMm,
-    availableWidthMm: Math.max(0, bandWidthMm - 2 * outerCrestMm),
+    intervals,
+    grooveCount: clampedCount,
+    usableWidthMm,
   }
 }
 
@@ -301,21 +320,16 @@ function validateStyleSettings(config: AppConfig): AppConfig {
 
   next.groovedWidthMm = clamp(next.groovedWidthMm, 0.4, 2.0)
   next.groovedDepthMm = clamp(next.groovedDepthMm, 0.1, 0.5)
-  next.groovedOuterCrestMm = clamp(next.groovedOuterCrestMm, 0.4, 5.0)
-  next.groovedOuterCrestMm = Math.max(next.groovedOuterCrestMm, next.groovedWidthMm * 0.8)
-  const maxGrooveCount = getMaxGrooveCount(next.bandWidth, next.groovedWidthMm, next.groovedOuterCrestMm)
+  next.groovedEdgeSpaceMm = clamp(next.groovedEdgeSpaceMm, 0.5, Math.max(0.5, next.bandWidth / 2 - next.groovedWidthMm / 2))
+  const maxGrooveCount = getMaxGrooveCount(next.bandWidth, next.groovedWidthMm, next.groovedEdgeSpaceMm)
   next.groovedCount = clamp(Math.round(next.groovedCount), 1, maxGrooveCount)
-  if (next.groovedCount > 1) {
-    const availableOuterMm = Math.max(0.4, (next.bandWidth - (next.groovedCount * next.groovedWidthMm + (next.groovedCount - 1) * getMiddleCrestMm(next.groovedWidthMm))) / 2)
-    next.groovedOuterCrestMm = clamp(next.groovedOuterCrestMm, Math.min(5, availableOuterMm), 5)
-  }
 
   next.facetedCount = clamp(Math.round(next.facetedCount), 10, 20)
   const maxFacetCountByArc = Math.max(10, Math.floor(circumferenceMm / FACET_MIN_ARC_MM))
   next.facetedCount = Math.min(next.facetedCount, maxFacetCountByArc)
 
   next.openOpeningMm = clamp(next.openOpeningMm, 3, Math.min(8, circumferenceMm * 0.25))
-  next.openRoundedEdgeRadiusMm = clamp(next.openRoundedEdgeRadiusMm, 0, 1.5)
+  next.openGapEndRoundingMm = clamp(next.openGapEndRoundingMm, 0, 1.5)
 
   const diagonalAngleDegrees = getDiagonalCutAngleDegrees(next.diagonalCutAngle)
   const requiredGapMm = Math.tan((diagonalAngleDegrees * Math.PI) / 180) * next.bandWidth * 0.5
@@ -327,6 +341,8 @@ function validateStyleSettings(config: AppConfig): AppConfig {
   } else {
     next.woodInlayWidthMm = Math.max(0.6, next.bandWidth * 0.45)
   }
+
+  next.outerEdgeChamferMm = next.outerEdgeChamferMm >= 0.45 ? 0.6 : next.outerEdgeChamferMm >= 0.15 ? 0.3 : 0
 
   return next
 }
@@ -344,7 +360,7 @@ function formatValue(language: Language, value: number, digits = 1) {
 
 function normaliseConfig(data: StoredConfig): AppConfig {
   const language = data.language === "de" ? "de" : "en"
-  const ringSize = typeof data.ringSize === "number" ? data.ringSize : DEFAULT_CONFIG.ringSize
+  const ringSize = snapToNearestSize(typeof data.ringSize === "number" ? data.ringSize : DEFAULT_CONFIG.ringSize)
   const bandWidth = typeof data.bandWidth === "number" ? data.bandWidth : DEFAULT_CONFIG.bandWidth
   const incomingStyle = data.style === "flat" ? "simple" : data.style
   const style = incomingStyle && styleIds.has(incomingStyle) ? incomingStyle : DEFAULT_CONFIG.style
@@ -381,7 +397,12 @@ function normaliseConfig(data: StoredConfig): AppConfig {
       : data.groovedWidth === "medium"
       ? 0.8
       : DEFAULT_CONFIG.groovedWidthMm
-  const groovedOuterCrestMm = typeof data.groovedOuterCrestMm === "number" ? data.groovedOuterCrestMm : DEFAULT_CONFIG.groovedOuterCrestMm
+  const groovedEdgeSpaceMm =
+    typeof data.groovedEdgeSpaceMm === "number"
+      ? data.groovedEdgeSpaceMm
+      : typeof data.groovedOuterCrestMm === "number"
+      ? data.groovedOuterCrestMm
+      : DEFAULT_CONFIG.groovedEdgeSpaceMm
   const facetedCount =
     typeof data.facetedCount === "number"
       ? data.facetedCount
@@ -410,7 +431,7 @@ function normaliseConfig(data: StoredConfig): AppConfig {
       : data.openGapWidth === "medium"
       ? 5
       : DEFAULT_CONFIG.openOpeningMm
-  const openRoundedEdgeRadiusMm =
+  const openGapEndRoundingMm =
     typeof data.openRoundedEdgeRadiusMm === "number"
       ? data.openRoundedEdgeRadiusMm
       : data.openEdgeTreatment === "razor"
@@ -419,7 +440,7 @@ function normaliseConfig(data: StoredConfig): AppConfig {
       ? 1
       : data.openEdgeTreatment === "softened"
       ? 0.4
-      : DEFAULT_CONFIG.openRoundedEdgeRadiusMm
+      : DEFAULT_CONFIG.openGapEndRoundingMm
   const diagonalOpeningMm =
     typeof data.diagonalOpeningMm === "number"
       ? data.diagonalOpeningMm
@@ -471,11 +492,11 @@ function normaliseConfig(data: StoredConfig): AppConfig {
     groovedWidthMm,
     groovedDepthMm,
     groovedCount,
-    groovedOuterCrestMm,
+    groovedEdgeSpaceMm,
     facetedCount,
     facetedEdgeMode,
     openOpeningMm,
-    openRoundedEdgeRadiusMm,
+    openGapEndRoundingMm,
     diagonalOpeningMm,
     diagonalDirection,
     diagonalEdgeFinish,
@@ -484,6 +505,7 @@ function normaliseConfig(data: StoredConfig): AppConfig {
     woodInlayWoodType,
     woodInlayWidthMm,
     woodInlayChamfer,
+    outerEdgeChamferMm: DEFAULT_CONFIG.outerEdgeChamferMm,
   })
 }
 
@@ -511,51 +533,88 @@ function buildProfile(
 ) {
   const profile: THREE.Vector2[] = []
   const bevel = Math.min(0.045, wallThickness * 0.22, bandHalfWidth * 0.4)
+  const outerChamfer = styleSettings ? clamp(mmToScene(styleSettings.outerEdgeChamferMm), 0, Math.min(wallThickness * 0.5, bandHalfWidth * 0.45)) : bevel * 0.7
 
-  if (style === "flat" || style === "grooved" || style === "woodSleeve" || style === "woodInlay") {
+  if (style === "flat" || style === "woodSleeve" || style === "woodInlay") {
     profile.push(
       new THREE.Vector2(innerRadius, -bandHalfWidth + bevel),
       new THREE.Vector2(innerRadius + bevel * 0.3, -bandHalfWidth),
-      new THREE.Vector2(outerRadius - bevel * 1.2, -bandHalfWidth),
-      new THREE.Vector2(outerRadius - bevel * 0.28, -bandHalfWidth + bevel * 0.22),
-      new THREE.Vector2(outerRadius, -bandHalfWidth + bevel),
-      new THREE.Vector2(outerRadius, bandHalfWidth - bevel),
-      new THREE.Vector2(outerRadius - bevel * 0.28, bandHalfWidth - bevel * 0.22),
-      new THREE.Vector2(outerRadius - bevel * 1.2, bandHalfWidth),
+      new THREE.Vector2(outerRadius - outerChamfer * 1.2, -bandHalfWidth),
+      new THREE.Vector2(outerRadius - outerChamfer * 0.28, -bandHalfWidth + outerChamfer * 0.22),
+      new THREE.Vector2(outerRadius, -bandHalfWidth + outerChamfer),
+      new THREE.Vector2(outerRadius, bandHalfWidth - outerChamfer),
+      new THREE.Vector2(outerRadius - outerChamfer * 0.28, bandHalfWidth - outerChamfer * 0.22),
+      new THREE.Vector2(outerRadius - outerChamfer * 1.2, bandHalfWidth),
       new THREE.Vector2(innerRadius + bevel * 0.3, bandHalfWidth),
       new THREE.Vector2(innerRadius, bandHalfWidth - bevel),
       new THREE.Vector2(innerRadius, -bandHalfWidth + bevel)
     )
-  } else if (style === "simple") {
+  } else if (style === "grooved" && styleSettings) {
+    const grooveLayout = getGrooveLayoutMm(
+      styleSettings.bandWidth,
+      styleSettings.groovedWidthMm,
+      styleSettings.groovedCount,
+      styleSettings.groovedEdgeSpaceMm
+    )
+    const grooveDepthScene = Math.min(mmToScene(styleSettings.groovedDepthMm), wallThickness * 0.58)
+    const bandSceneScale = bandHalfWidth / Math.max(styleSettings.bandWidth / 2, 0.0001)
+    const toBandSceneY = (valueMm: number) => valueMm * bandSceneScale
+    const grooveShoulderMm = Math.min(0.12, styleSettings.groovedWidthMm * 0.2)
+    const grooveShoulderScene = Math.max(0.0008, grooveShoulderMm * bandSceneScale)
+
+    const outerContour: THREE.Vector2[] = [new THREE.Vector2(outerRadius, -bandHalfWidth + outerChamfer)]
+    let cursorY = -bandHalfWidth + outerChamfer
+
+    for (const interval of grooveLayout.intervals) {
+      const grooveStartY = clamp(toBandSceneY(interval.startMm), cursorY, bandHalfWidth - outerChamfer)
+      const grooveEndY = clamp(toBandSceneY(interval.endMm), grooveStartY, bandHalfWidth - outerChamfer)
+      const grooveLeadInEndY = Math.min(grooveEndY, grooveStartY + grooveShoulderScene)
+      const grooveLeadOutStartY = Math.max(grooveLeadInEndY, grooveEndY - grooveShoulderScene)
+
+      if (grooveStartY > cursorY) {
+        outerContour.push(new THREE.Vector2(outerRadius, grooveStartY))
+      }
+
+      outerContour.push(new THREE.Vector2(outerRadius - grooveDepthScene, grooveLeadInEndY))
+
+      if (grooveLeadOutStartY > grooveLeadInEndY) {
+        outerContour.push(new THREE.Vector2(outerRadius - grooveDepthScene, grooveLeadOutStartY))
+      }
+
+      outerContour.push(new THREE.Vector2(outerRadius, grooveEndY))
+      cursorY = grooveEndY
+    }
+
+    if (cursorY < bandHalfWidth - outerChamfer) {
+      outerContour.push(new THREE.Vector2(outerRadius, bandHalfWidth - outerChamfer))
+    }
+
+    profile.push(
+      new THREE.Vector2(innerRadius, -bandHalfWidth + bevel),
+      new THREE.Vector2(innerRadius + bevel * 0.3, -bandHalfWidth),
+      new THREE.Vector2(outerRadius - outerChamfer * 1.2, -bandHalfWidth),
+      new THREE.Vector2(outerRadius - outerChamfer * 0.28, -bandHalfWidth + outerChamfer * 0.22),
+      ...outerContour,
+      new THREE.Vector2(outerRadius - outerChamfer * 0.28, bandHalfWidth - outerChamfer * 0.22),
+      new THREE.Vector2(outerRadius - outerChamfer * 1.2, bandHalfWidth),
+      new THREE.Vector2(innerRadius + bevel * 0.3, bandHalfWidth),
+      new THREE.Vector2(innerRadius, bandHalfWidth - bevel),
+      new THREE.Vector2(innerRadius, -bandHalfWidth + bevel)
+    )
+  } else if (style === "simple" || style === "open" || style === "diagonal") {
     const shoulder = wallThickness * 0.04
     profile.push(
       new THREE.Vector2(innerRadius, -bandHalfWidth + bevel),
       new THREE.Vector2(innerRadius + bevel * 0.32, -bandHalfWidth),
-      new THREE.Vector2(outerRadius - bevel * 1.35 - shoulder, -bandHalfWidth),
-      new THREE.Vector2(outerRadius - bevel * 0.24, -bandHalfWidth + bevel * 0.28),
-      new THREE.Vector2(outerRadius, -bandHalfWidth + bevel * 0.92),
-      new THREE.Vector2(outerRadius, bandHalfWidth - bevel * 0.92),
-      new THREE.Vector2(outerRadius - bevel * 0.24, bandHalfWidth - bevel * 0.28),
-      new THREE.Vector2(outerRadius - bevel * 1.35 - shoulder, bandHalfWidth),
+      new THREE.Vector2(outerRadius - outerChamfer * 1.35 - shoulder, -bandHalfWidth),
+      new THREE.Vector2(outerRadius - outerChamfer * 0.24, -bandHalfWidth + outerChamfer * 0.28),
+      new THREE.Vector2(outerRadius, -bandHalfWidth + outerChamfer * 0.92),
+      new THREE.Vector2(outerRadius, bandHalfWidth - outerChamfer * 0.92),
+      new THREE.Vector2(outerRadius - outerChamfer * 0.24, bandHalfWidth - outerChamfer * 0.28),
+      new THREE.Vector2(outerRadius - outerChamfer * 1.35 - shoulder, bandHalfWidth),
       new THREE.Vector2(innerRadius + bevel * 0.32, bandHalfWidth),
       new THREE.Vector2(innerRadius, bandHalfWidth - bevel),
       new THREE.Vector2(innerRadius, -bandHalfWidth + bevel)
-    )
-  } else if (style === "diagonal") {
-    const diagonalBevel = styleSettings?.diagonalEdgeFinish === "softened" ? clamp(mmToScene(SOFTENED_DIAGONAL_BEVEL_MM), 0.012, Math.min(wallThickness * 0.34, bandHalfWidth * 0.38)) : Math.min(0.012, bevel * 0.45)
-    const shoulder = wallThickness * 0.035
-    profile.push(
-      new THREE.Vector2(innerRadius, -bandHalfWidth + diagonalBevel),
-      new THREE.Vector2(innerRadius + diagonalBevel * 0.32, -bandHalfWidth),
-      new THREE.Vector2(outerRadius - diagonalBevel * 1.2 - shoulder, -bandHalfWidth),
-      new THREE.Vector2(outerRadius - diagonalBevel * 0.26, -bandHalfWidth + diagonalBevel * 0.24),
-      new THREE.Vector2(outerRadius, -bandHalfWidth + diagonalBevel * 0.88),
-      new THREE.Vector2(outerRadius, bandHalfWidth - diagonalBevel * 0.88),
-      new THREE.Vector2(outerRadius - diagonalBevel * 0.26, bandHalfWidth - diagonalBevel * 0.24),
-      new THREE.Vector2(outerRadius - diagonalBevel * 1.2 - shoulder, bandHalfWidth),
-      new THREE.Vector2(innerRadius + diagonalBevel * 0.32, bandHalfWidth),
-      new THREE.Vector2(innerRadius, bandHalfWidth - diagonalBevel),
-      new THREE.Vector2(innerRadius, -bandHalfWidth + diagonalBevel)
     )
   } else if (style === "domed" || style === "hammered") {
     const steps = 22
@@ -574,23 +633,6 @@ function buildProfile(
       new THREE.Vector2(innerRadius + bevel * 0.5, bandHalfWidth),
       new THREE.Vector2(innerRadius, bandHalfWidth - bevel),
       new THREE.Vector2(innerRadius, -bandHalfWidth + bevel)
-    )
-  } else if (style === "open") {
-    const roundedEdge = clamp(mmToScene(styleSettings?.openRoundedEdgeRadiusMm ?? DEFAULT_CONFIG.openRoundedEdgeRadiusMm), 0.003, Math.min(wallThickness * 0.38, bandHalfWidth * 0.48))
-    const outerShoulder = roundedEdge * 0.22
-    profile.push(
-      new THREE.Vector2(innerRadius, -bandHalfWidth + roundedEdge),
-      new THREE.Vector2(innerRadius + roundedEdge * 0.55, -bandHalfWidth),
-      new THREE.Vector2(outerRadius - roundedEdge * 0.95 - outerShoulder, -bandHalfWidth),
-      new THREE.Vector2(outerRadius - roundedEdge * 0.34, -bandHalfWidth + roundedEdge * 0.3),
-      new THREE.Vector2(outerRadius, -bandHalfWidth + roundedEdge * 0.98),
-      new THREE.Vector2(outerRadius + wallThickness * 0.18, 0),
-      new THREE.Vector2(outerRadius, bandHalfWidth - roundedEdge * 0.98),
-      new THREE.Vector2(outerRadius - roundedEdge * 0.34, bandHalfWidth - roundedEdge * 0.3),
-      new THREE.Vector2(outerRadius - roundedEdge * 0.95 - outerShoulder, bandHalfWidth),
-      new THREE.Vector2(innerRadius + roundedEdge * 0.55, bandHalfWidth),
-      new THREE.Vector2(innerRadius, bandHalfWidth - roundedEdge),
-      new THREE.Vector2(innerRadius, -bandHalfWidth + roundedEdge)
     )
   } else if (style === "faceted") {
     const facetInset = wallThickness * 0.16
@@ -612,146 +654,222 @@ function buildProfile(
   return profile
 }
 
-function createFacetedRingGeometry(
+function applyFacetedOuterSurface(
+  sourceGeometry: THREE.BufferGeometry,
   innerRadius: number,
   outerRadius: number,
-  bandHalfWidth: number,
   facetCount: number,
   edgeMode: FacetedEdgeMode
 ) {
-  const shape = new THREE.Shape()
-  const outerPoints = Array.from({ length: facetCount }, (_, index) => {
-    const angle = (index / facetCount) * Math.PI * 2
-    return new THREE.Vector2(Math.cos(angle) * outerRadius, Math.sin(angle) * outerRadius)
-  })
+  const geometry = edgeMode === "hard" ? sourceGeometry.toNonIndexed() : sourceGeometry.clone()
+  const position = geometry.getAttribute("position") as THREE.BufferAttribute
+  const segmentAngle = (Math.PI * 2) / facetCount
+  const outerSurfaceThreshold = outerRadius - Math.max((outerRadius - innerRadius) * 0.22, 0.01)
 
-  shape.moveTo(outerPoints[0].x, outerPoints[0].y)
-  outerPoints.slice(1).forEach((point) => shape.lineTo(point.x, point.y))
-  shape.closePath()
+  for (let index = 0; index < position.count; index += 1) {
+    const x = position.getX(index)
+    const y = position.getY(index)
+    const z = position.getZ(index)
+    const radius = Math.hypot(x, z)
 
-  const innerCurve = new THREE.Path()
-  innerCurve.absellipse(0, 0, innerRadius, innerRadius, 0, Math.PI * 2, true, 0)
-  shape.holes.push(innerCurve)
+    // Keep the inner wall perfectly circular; only snap vertices on the outer shell/silhouette.
+    if (radius < outerSurfaceThreshold) continue
 
-  const bevelEnabled = edgeMode === "soft"
-  const geometry = new THREE.ExtrudeGeometry(shape, {
-    depth: bandHalfWidth * 2,
-    steps: 1,
-    bevelEnabled,
-    bevelSegments: bevelEnabled ? 2 : 0,
-    bevelSize: bevelEnabled ? Math.min(mmToScene(0.18), bandHalfWidth * 0.12) : 0,
-    bevelThickness: bevelEnabled ? Math.min(mmToScene(0.12), bandHalfWidth * 0.09) : 0,
-  })
-
-  geometry.translate(0, 0, -bandHalfWidth)
-  geometry.rotateX(Math.PI / 2)
-  geometry.computeVertexNormals()
-  return geometry
-}
-
-function createEndCapGeometry(
-  profile: THREE.Vector2[],
-  angle: number,
-  invert: boolean,
-  slope: number,
-  bandHalfWidth: number
-) {
-  const sourcePoints = profile[profile.length - 1].equals(profile[0]) ? profile.slice(0, -1) : profile
-  const points = invert ? [...sourcePoints].reverse() : sourcePoints
-  const shape = new THREE.Shape(points.map((point) => new THREE.Vector2(point.x, point.y)))
-  const capGeometry = new THREE.ShapeGeometry(shape)
-  const position = capGeometry.getAttribute("position") as THREE.BufferAttribute
-  const radial = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle))
-  const tangent = new THREE.Vector3(-Math.sin(angle), 0, Math.cos(angle))
-
-  for (let i = 0; i < position.count; i += 1) {
-    const radius = position.getX(i)
-    const y = position.getY(i)
-    const slopeOffset = slope === 0 ? 0 : (y / bandHalfWidth) * slope
-
-    position.setXYZ(
-      i,
-      radial.x * radius + tangent.x * slopeOffset,
-      y,
-      radial.z * radius + tangent.z * slopeOffset
-    )
+    const angle = Math.atan2(z, x)
+    const snappedAngle = Math.round(angle / segmentAngle) * segmentAngle
+    position.setXYZ(index, Math.cos(snappedAngle) * radius, y, Math.sin(snappedAngle) * radius)
   }
 
-  capGeometry.deleteAttribute("normal")
   position.needsUpdate = true
-  capGeometry.computeVertexNormals()
-  return capGeometry
+  geometry.computeVertexNormals()
+  return geometry
 }
 
 function createLatheGeometry(
   profile: THREE.Vector2[],
-  style: StyleId,
-  styleSettings: StyleSettings,
-  bandHalfWidth: number,
+  _style: StyleId,
+  _styleSettings: StyleSettings,
+  _bandHalfWidth: number,
   reducedDetail = false
 ) {
-  if (style === "faceted") {
-    return createFacetedRingGeometry(
-      styleSettings.ringSize / 20,
-      styleSettings.ringSize / 20 + mmToScene(WALL_THICKNESS_MM),
-      mmToScene(styleSettings.bandWidth),
-      styleSettings.facetedCount,
-      styleSettings.facetedEdgeMode
-    )
-  }
-
-  const segments = reducedDetail
-    ? style === "open" || style === "diagonal"
-      ? 128
-      : 192
-    : style === "open" || style === "diagonal"
-    ? 224
-    : 384
-  let phiLength = Math.PI * 2
-  let phiStart = Math.PI * 1.16
-  let capSlope = 0
-
-  if (style === "open") {
-    const gapAngleRad = styleSettings.openOpeningMm / getCentreRadiusMm(styleSettings.ringSize)
-    phiLength = Math.PI * 2 - gapAngleRad
-    phiStart = Math.PI + gapAngleRad / 2
-  }
-
-  if (style === "diagonal") {
-    const gapAngleRad = styleSettings.diagonalOpeningMm / getCentreRadiusMm(styleSettings.ringSize)
-    phiLength = Math.PI * 2 - gapAngleRad
-    phiStart = Math.PI + gapAngleRad / 2
-    capSlope = Math.tan((getDiagonalCutAngleDegrees(styleSettings.diagonalCutAngle) * Math.PI) / 180) * bandHalfWidth
-  }
-
-  const geometry = new THREE.LatheGeometry(profile, segments, phiStart, phiLength)
-
-  if (style === "open" || style === "diagonal") {
-    const diagonalSlopeSign = styleSettings.diagonalDirection === "leftRising" ? -1 : 1
-    const startSlope = style === "diagonal" ? diagonalSlopeSign * capSlope : 0
-    const endSlope = style === "diagonal" ? -diagonalSlopeSign * capSlope : 0
-    const capA = createEndCapGeometry(profile, phiStart, false, startSlope, bandHalfWidth)
-    const capB = createEndCapGeometry(profile, phiStart + phiLength, true, endSlope, bandHalfWidth)
-    geometry.deleteAttribute("uv")
-    capA.deleteAttribute("uv")
-    capB.deleteAttribute("uv")
-
-    const merged = mergeGeometries([geometry, capA, capB], false)
-    capA.dispose()
-    capB.dispose()
-
-    if (merged) {
-      geometry.dispose()
-      merged.computeVertexNormals()
-      return merged
-    }
-
-    geometry.computeVertexNormals()
-    return geometry
-  }
+  const segments = reducedDetail ? 192 : 384
+  const geometry = new THREE.LatheGeometry(profile, segments)
 
   geometry.computeVertexNormals()
   return geometry
+}
+
+function createArcSectionGeometry(
+  profile: THREE.Vector2[],
+  style: "open",
+  _innerRadius: number,
+  _outerRadius: number,
+  _bandHalfWidth: number,
+  styleSettings: StyleSettings,
+  reducedDetail = false
+) {
+  const outline = profile[profile.length - 1].equals(profile[0]) ? profile.slice(0, -1) : profile
+  const arcSegments = reducedDetail ? 112 : 192
+  const gapAngleRad = (style === "open" ? styleSettings.openOpeningMm : styleSettings.diagonalOpeningMm) / getCentreRadiusMm(styleSettings.ringSize)
+  const baseStartAngle = Math.PI + gapAngleRad / 2
+  const baseEndAngle = baseStartAngle + (Math.PI * 2 - gapAngleRad)
+  const cols = arcSegments + 1
+  const bodyVertexCount = outline.length * cols
+  const positions: number[] = []
+  const indices: number[] = []
+  const buildBoundaryLoop = (angle: number, tangentDirection: 1 | -1) => {
+    const radial = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle))
+
+    return outline.map((point) => {
+      void tangentDirection
+      return new THREE.Vector3(radial.x * point.x, point.y, radial.z * point.x)
+    })
+  }
+
+  const startLoop = buildBoundaryLoop(baseStartAngle, 1)
+  const endLoop = buildBoundaryLoop(baseEndAngle, -1)
+
+  for (let profileIndex = 0; profileIndex < outline.length; profileIndex += 1) {
+    const point = outline[profileIndex]
+
+    for (let segmentIndex = 0; segmentIndex <= arcSegments; segmentIndex += 1) {
+      if (segmentIndex === 0) {
+        const loopPoint = startLoop[profileIndex]
+        positions.push(loopPoint.x, loopPoint.y, loopPoint.z)
+        continue
+      }
+
+      if (segmentIndex === arcSegments) {
+        const loopPoint = endLoop[profileIndex]
+        positions.push(loopPoint.x, loopPoint.y, loopPoint.z)
+        continue
+      }
+
+      const t = segmentIndex / arcSegments
+      const angle = THREE.MathUtils.lerp(baseStartAngle, baseEndAngle, t)
+      positions.push(Math.cos(angle) * point.x, point.y, Math.sin(angle) * point.x)
+    }
+  }
+
+  for (let profileIndex = 0; profileIndex < outline.length; profileIndex += 1) {
+    const nextProfileIndex = (profileIndex + 1) % outline.length
+
+    for (let segmentIndex = 0; segmentIndex < arcSegments; segmentIndex += 1) {
+      const a = profileIndex * cols + segmentIndex
+      const b = nextProfileIndex * cols + segmentIndex
+      const c = nextProfileIndex * cols + segmentIndex + 1
+      const d = profileIndex * cols + segmentIndex + 1
+      indices.push(a, b, d)
+      indices.push(b, c, d)
+    }
+  }
+
+  const contourClockwise = THREE.ShapeUtils.isClockWise(outline)
+  const capContour2D = contourClockwise ? outline.map((point) => point.clone()) : [...outline].reverse().map((point) => point.clone())
+  const capStartLoop = contourClockwise ? startLoop : [...startLoop].reverse()
+  const capEndLoop = contourClockwise ? endLoop : [...endLoop].reverse()
+  const triangulated = THREE.ShapeUtils.triangulateShape(capContour2D, [])
+  const startCapOffset = bodyVertexCount
+  const endCapOffset = bodyVertexCount + outline.length
+
+  for (let profileIndex = 0; profileIndex < capStartLoop.length; profileIndex += 1) {
+    const startPoint = capStartLoop[profileIndex]
+    positions.push(startPoint.x, startPoint.y, startPoint.z)
+  }
+
+  for (let profileIndex = 0; profileIndex < capEndLoop.length; profileIndex += 1) {
+    const endPoint = capEndLoop[profileIndex]
+    positions.push(endPoint.x, endPoint.y, endPoint.z)
+  }
+
+  triangulated.forEach(([a, b, c]) => {
+    indices.push(startCapOffset + c, startCapOffset + b, startCapOffset + a)
+    indices.push(endCapOffset + a, endCapOffset + b, endCapOffset + c)
+  })
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setIndex(indices)
+  geometry.computeVertexNormals()
+  geometry.computeBoundingBox()
+  geometry.computeBoundingSphere()
+  return geometry
+}
+
+function createDiagonalArcGeometry(
+  profile: THREE.Vector2[],
+  innerRadius: number,
+  outerRadius: number,
+  bandHalfWidth: number,
+  styleSettings: StyleSettings,
+  reducedDetail = false
+) {
+  const outline = profile[profile.length - 1].equals(profile[0]) ? profile.slice(0, -1) : profile
+  const arcSegments = reducedDetail ? 80 : 128
+  const gapAngleRad = styleSettings.diagonalOpeningMm / getCentreRadiusMm(styleSettings.ringSize)
+  const startAngle = Math.PI + gapAngleRad / 2
+  const endAngle = startAngle + (Math.PI * 2 - gapAngleRad)
+  const diagonalDirectionSign = styleSettings.diagonalDirection === "leftRising" ? -1 : 1
+  const tiltRadians = THREE.MathUtils.degToRad(getDiagonalCutAngleDegrees(styleSettings.diagonalCutAngle)) * diagonalDirectionSign
+  const cols = arcSegments + 1
+  const positions: number[] = []
+  const indices: number[] = []
+
+  for (let profileIndex = 0; profileIndex < outline.length; profileIndex += 1) {
+    const point = outline[profileIndex]
+
+    for (let segmentIndex = 0; segmentIndex <= arcSegments; segmentIndex += 1) {
+      const t = segmentIndex / arcSegments
+      const angle = THREE.MathUtils.lerp(startAngle, endAngle, t)
+      positions.push(Math.cos(angle) * point.x, point.y, Math.sin(angle) * point.x)
+    }
+  }
+
+  for (let profileIndex = 0; profileIndex < outline.length; profileIndex += 1) {
+    const nextProfileIndex = (profileIndex + 1) % outline.length
+
+    for (let segmentIndex = 0; segmentIndex < arcSegments; segmentIndex += 1) {
+      const a = profileIndex * cols + segmentIndex
+      const b = nextProfileIndex * cols + segmentIndex
+      const c = nextProfileIndex * cols + segmentIndex + 1
+      const d = profileIndex * cols + segmentIndex + 1
+      indices.push(a, b, d)
+      indices.push(b, c, d)
+    }
+  }
+
+  const bodyGeometry = new THREE.BufferGeometry()
+  bodyGeometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3))
+  bodyGeometry.setIndex(indices)
+  bodyGeometry.computeVertexNormals()
+  bodyGeometry.computeBoundingBox()
+  bodyGeometry.computeBoundingSphere()
+
+  const createEndFaceGeometry = (angle: number, tangentDirection: 1 | -1) => {
+    const radial = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle))
+    const tangent = new THREE.Vector3(-Math.sin(angle), 0, Math.cos(angle))
+    const normal = tangent.clone().multiplyScalar(tangentDirection)
+    const centerRadius = (innerRadius + outerRadius) / 2
+    const capWidth = outerRadius - innerRadius + 0.004
+    const capHeight = bandHalfWidth * 2 + 0.004
+    const capGeometry = new THREE.PlaneGeometry(capWidth, capHeight, 1, 1)
+    const localTilt = new THREE.Matrix4().makeRotationX(tiltRadians * tangentDirection)
+    const basis = new THREE.Matrix4().makeBasis(radial, new THREE.Vector3(0, 1, 0), normal)
+    const position = radial.clone().multiplyScalar(centerRadius).add(normal.clone().multiplyScalar(0.0018))
+
+    capGeometry.applyMatrix4(localTilt)
+    capGeometry.applyMatrix4(basis)
+    capGeometry.translate(position.x, position.y, position.z)
+    capGeometry.computeVertexNormals()
+    capGeometry.computeBoundingBox()
+    capGeometry.computeBoundingSphere()
+    return capGeometry
+  }
+
+  return {
+    bodyGeometry,
+    capGeometries: [createEndFaceGeometry(startAngle, -1), createEndFaceGeometry(endAngle, 1)],
+  }
 }
 
 function getNoiseValue(x: number, y: number, z: number) {
@@ -845,29 +963,54 @@ function createSoftWindowTexture(theme: ThemeMode, reducedDetail = false) {
 
   const bg = ctx.createLinearGradient(0, 0, 0, canvasSize)
   if (theme === "dark") {
-    bg.addColorStop(0, "#221e1a")
-    bg.addColorStop(0.55, "#191613")
-    bg.addColorStop(1, "#14110f")
+    bg.addColorStop(0, "#2a241d")
+    bg.addColorStop(0.52, "#1f1a15")
+    bg.addColorStop(1, "#16120f")
   } else {
-    bg.addColorStop(0, "#f3f0eb")
-    bg.addColorStop(0.55, "#f7f4ee")
-    bg.addColorStop(1, "#eee8df")
+    bg.addColorStop(0, "#fffaf2")
+    bg.addColorStop(0.48, "#f4eee4")
+    bg.addColorStop(1, "#e8dccd")
   }
   ctx.fillStyle = bg
   ctx.fillRect(0, 0, canvasSize, canvasSize)
 
-  ctx.filter = "blur(48px)"
+  const glow = ctx.createRadialGradient(canvasSize * 0.5, canvasSize * 0.2, 0, canvasSize * 0.5, canvasSize * 0.28, canvasSize * 0.9)
+  if (theme === "dark") {
+    glow.addColorStop(0, "rgba(255,239,214,0.2)")
+    glow.addColorStop(0.55, "rgba(214,182,144,0.1)")
+    glow.addColorStop(1, "rgba(0,0,0,0)")
+  } else {
+    glow.addColorStop(0, "rgba(255,251,244,0.95)")
+    glow.addColorStop(0.55, "rgba(248,239,224,0.42)")
+    glow.addColorStop(1, "rgba(255,255,255,0)")
+  }
+  ctx.fillStyle = glow
+  ctx.fillRect(0, 0, canvasSize, canvasSize)
+
+  ctx.filter = reducedDetail ? "blur(56px)" : "blur(78px)"
 
   const windows = [
-    [40, -80, 145, 720, 0.58],
-    [210, -120, 170, 760, 0.45],
-    [430, -60, 135, 680, 0.38],
-    [625, -100, 180, 760, 0.48],
-    [850, -40, 125, 650, 0.4],
+    [46, -220, 118, canvasSize + 420, 0.62],
+    [168, -180, 162, canvasSize + 360, 0.74],
+    [356, -240, 112, canvasSize + 460, 0.54],
+    [492, -210, 182, canvasSize + 420, 0.68],
+    [714, -190, 126, canvasSize + 390, 0.5],
+    [854, -220, 148, canvasSize + 430, 0.58],
   ] as const
 
   for (const [x, y, w, h, a] of windows) {
-    ctx.fillStyle = theme === "dark" ? `rgba(255,246,234,${Math.max(0.1, a * 0.28)})` : `rgba(255,255,255,${a})`
+    ctx.fillStyle = theme === "dark" ? `rgba(255,246,232,${Math.max(0.12, a * 0.26)})` : `rgba(255,255,255,${a})`
+    ctx.fillRect(x, y, w, h)
+  }
+
+  const warmColumns = [
+    [120, -160, 68, canvasSize + 260, 0.16],
+    [424, -110, 84, canvasSize + 240, 0.14],
+    [772, -170, 72, canvasSize + 280, 0.15],
+  ] as const
+
+  for (const [x, y, w, h, a] of warmColumns) {
+    ctx.fillStyle = theme === "dark" ? `rgba(214,165,95,${Math.max(0.08, a * 0.45)})` : `rgba(232,220,205,${a})`
     ctx.fillRect(x, y, w, h)
   }
 
@@ -879,6 +1022,64 @@ function createSoftWindowTexture(theme: ThemeMode, reducedDetail = false) {
   return texture
 }
 
+function createBrushedTexture() {
+  const canvas = document.createElement("canvas")
+  canvas.width = 768
+  canvas.height = 48
+  const ctx = canvas.getContext("2d")
+  if (!ctx) return null
+
+  const base = ctx.createLinearGradient(0, 0, canvas.width, 0)
+  base.addColorStop(0, "#e3e5e7")
+  base.addColorStop(0.5, "#b7bbbe")
+  base.addColorStop(1, "#dfe2e4")
+  ctx.fillStyle = base
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+  for (let index = 0; index < canvas.width; index += 1) {
+    const shade = 200 + ((index * 17) % 23) - 11
+    ctx.fillStyle = `rgba(${shade}, ${shade}, ${shade}, 0.09)`
+    ctx.fillRect(index, 0, 1, canvas.height)
+  }
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.RepeatWrapping
+  texture.repeat.set(14, 1)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.needsUpdate = true
+  return texture
+}
+
+function createSubtleMetalRoughnessTexture() {
+  const canvas = document.createElement("canvas")
+  canvas.width = 512
+  canvas.height = 512
+  const ctx = canvas.getContext("2d")
+  if (!ctx) return null
+
+  const imageData = ctx.createImageData(canvas.width, canvas.height)
+
+  for (let index = 0; index < imageData.data.length; index += 4) {
+    const value = 205 + Math.floor(Math.random() * 18)
+    imageData.data[index] = value
+    imageData.data[index + 1] = value
+    imageData.data[index + 2] = value
+    imageData.data[index + 3] = 255
+  }
+
+  ctx.putImageData(imageData, 0, 0)
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.RepeatWrapping
+  texture.repeat.set(3, 1)
+  texture.colorSpace = THREE.NoColorSpace
+  texture.needsUpdate = true
+
+  return texture
+}
+
 function Ring({
   size,
   width,
@@ -887,6 +1088,7 @@ function Ring({
   previewRotation = [0.7, 0.2, 0],
   styleSettings,
   reducedDetail = false,
+  technicalView = false,
 }: {
   size: number
   width: number
@@ -895,18 +1097,26 @@ function Ring({
   previewRotation?: [number, number, number]
   styleSettings: StyleSettings
   reducedDetail?: boolean
+  technicalView?: boolean
 }) {
   const selectedFinish = finishes.find((item) => item.id === finish) ?? finishes[0]
+  const brushedTexture = useMemo(() => (finish === "brushed" && !technicalView ? createBrushedTexture() : null), [finish, technicalView])
+  const subtleMetalRoughnessTexture = useMemo(
+    () => (!technicalView && (finish === "polished" || finish === "normal") ? createSubtleMetalRoughnessTexture() : null),
+    [finish, technicalView]
+  )
 
-  const { geometry, grooveGeometries, woodInlayGeometry, woodSleeveGeometry } = useMemo(() => {
+  const { geometry, capGeometries, woodInlayGeometry, woodSleeveGeometry } = useMemo(() => {
     const innerRadius = size / 20
     const bandHalfWidth = mmToScene(width)
     const wallThickness = mmToScene(WALL_THICKNESS_MM)
 
     const outerRadius = innerRadius + wallThickness
-    const profile = buildProfile(style, innerRadius, outerRadius, bandHalfWidth, wallThickness, styleSettings)
-    const baseGeometry = createLatheGeometry(profile, style, styleSettings, bandHalfWidth, reducedDetail)
-    let geometry = baseGeometry
+    const baseProfileStyle = style === "faceted" || style === "open" || style === "diagonal" ? "simple" : style
+    const profile = buildProfile(baseProfileStyle, innerRadius, outerRadius, bandHalfWidth, wallThickness, styleSettings)
+    const baseGeometry = createLatheGeometry(profile, baseProfileStyle, styleSettings, bandHalfWidth, reducedDetail)
+    let geometry: THREE.BufferGeometry = baseGeometry
+    let capGeometries: THREE.BufferGeometry[] = []
 
     if (style === "hammered") {
       geometry = createHammeredGeometry(
@@ -918,34 +1128,25 @@ function Ring({
       )
     }
 
-    if (style === "faceted" && styleSettings.facetedEdgeMode === "hard") {
-      geometry = baseGeometry.index ? baseGeometry.toNonIndexed() : baseGeometry.clone()
-      geometry.computeVertexNormals()
+    if (style === "faceted") {
+      geometry = applyFacetedOuterSurface(
+        baseGeometry,
+        innerRadius,
+        outerRadius,
+        styleSettings.facetedCount,
+        styleSettings.facetedEdgeMode
+      )
     }
 
-    const grooveLayout = getGrooveLayoutMm(
-      styleSettings.bandWidth,
-      styleSettings.groovedWidthMm,
-      styleSettings.groovedCount,
-      styleSettings.groovedOuterCrestMm
-    )
-    const grooveHalfWidth = mmToScene(styleSettings.groovedWidthMm) / 2
-    const grooveDepthScene = mmToScene(styleSettings.groovedDepthMm)
+    if (style === "open") {
+      geometry = createArcSectionGeometry(profile, "open", innerRadius, outerRadius, bandHalfWidth, styleSettings, reducedDetail)
+    }
 
-    const grooveGeometries =
-      style === "grooved"
-        ? grooveLayout.centers.map((centerMm) =>
-            createOuterStripGeometry(
-              outerRadius - grooveDepthScene * 0.2,
-              mmToScene(centerMm) - grooveHalfWidth,
-              mmToScene(centerMm) + grooveHalfWidth,
-              grooveDepthScene * 0.65,
-              style,
-              styleSettings,
-              reducedDetail
-            )
-          )
-        : []
+    if (style === "diagonal") {
+      const diagonalGeometry = createDiagonalArcGeometry(profile, innerRadius, outerRadius, bandHalfWidth, styleSettings, reducedDetail)
+      geometry = diagonalGeometry.bodyGeometry
+      capGeometries = diagonalGeometry.capGeometries
+    }
 
     const woodInlayHalfWidth = mmToScene(styleSettings.woodInlayWidthMm) / 2
     const woodInlayInset = mmToScene(0.32)
@@ -995,7 +1196,7 @@ function Ring({
 
     return {
       geometry,
-      grooveGeometries,
+      capGeometries,
       woodInlayGeometry,
       woodSleeveGeometry,
     }
@@ -1004,21 +1205,39 @@ function Ring({
   useEffect(() => {
     return () => {
       geometry.dispose()
-      grooveGeometries.forEach((item) => item.dispose())
+      capGeometries.forEach((item) => item.dispose())
       woodInlayGeometry?.dispose()
       woodSleeveGeometry?.dispose()
+      brushedTexture?.dispose()
+      subtleMetalRoughnessTexture?.dispose()
     }
-  }, [geometry, grooveGeometries, woodInlayGeometry, woodSleeveGeometry])
+  }, [geometry, capGeometries, woodInlayGeometry, woodSleeveGeometry, brushedTexture, subtleMetalRoughnessTexture])
 
-  const isWoodSleeve = style === "woodSleeve"
   const isBrushed = finish === "brushed"
-  const isPolished = finish === "polished"
   const isFacetedCrisp = style === "faceted" && styleSettings.facetedEdgeMode === "hard"
 
-  const mainColour = selectedFinish.colour
+  const mainColour = technicalView ? "#d8d8d8" : selectedFinish.colour
   const mainMetalness = selectedFinish.metalness ?? 0.88
-  const mainRoughness = style === "hammered" ? Math.max(selectedFinish.roughness, 0.42) : selectedFinish.roughness
-  const mainEnv = selectedFinish.envMapIntensity ?? 1.1
+  const mainRoughness = technicalView
+    ? 0.32
+    : finish === "polished"
+      ? 0.12
+      : finish === "brushed"
+        ? 0.28
+        : style === "hammered"
+          ? Math.max(selectedFinish.roughness, 0.46)
+          : finish === "normal"
+            ? 0.18
+            : selectedFinish.roughness
+  const mainEnv = technicalView
+    ? 1.7
+    : finish === "polished"
+      ? 2.15
+      : finish === "brushed"
+        ? 1.35
+        : selectedFinish.envMapIntensity ?? 1.1
+  const clearcoat = technicalView ? 0.38 : finish === "polished" ? 0.85 : selectedFinish.clearcoat ?? 0.58
+  const clearcoatRoughness = technicalView ? 0.12 : finish === "polished" ? 0.08 : isBrushed ? 0.24 : 0.14
 
   return (
     <group rotation={previewRotation}>
@@ -1027,21 +1246,36 @@ function Ring({
           color={mainColour}
           metalness={mainMetalness}
           roughness={mainRoughness}
+          roughnessMap={subtleMetalRoughnessTexture}
           envMapIntensity={mainEnv}
-          clearcoat={isWoodSleeve ? 0.22 : selectedFinish.clearcoat ?? 0.58}
-          clearcoatRoughness={isPolished ? 0.04 : isBrushed ? 0.22 : 0.16}
+          clearcoat={clearcoat}
+          clearcoatRoughness={clearcoatRoughness}
           anisotropy={isBrushed ? selectedFinish.anisotropy ?? 0 : 0}
           anisotropyRotation={Math.PI / 2}
           sheen={selectedFinish.sheen ?? 0}
-          sheenRoughness={0.52}
+          sheenRoughness={0.46}
           flatShading={isFacetedCrisp}
+          map={finish === "brushed" && !technicalView ? brushedTexture : null}
         />
       </mesh>
 
-      {style === "grooved" &&
-        grooveGeometries.map((item, index) => (
-          <mesh key={index} geometry={item}>
-            <meshStandardMaterial color="#111317" metalness={0.4} roughness={0.55} envMapIntensity={0.8} />
+      {style === "diagonal" &&
+        capGeometries.map((item, index) => (
+          <mesh key={`diagonal-cap-${index}`} geometry={item} castShadow receiveShadow>
+            <meshPhysicalMaterial
+              color={mainColour}
+              metalness={mainMetalness}
+              roughness={mainRoughness}
+              roughnessMap={subtleMetalRoughnessTexture}
+              envMapIntensity={mainEnv}
+              clearcoat={clearcoat}
+              clearcoatRoughness={clearcoatRoughness}
+              anisotropy={isBrushed ? selectedFinish.anisotropy ?? 0 : 0}
+              anisotropyRotation={Math.PI / 2}
+              sheen={selectedFinish.sheen ?? 0}
+              sheenRoughness={0.46}
+              map={finish === "brushed" && !technicalView ? brushedTexture : null}
+            />
           </mesh>
         ))}
 
@@ -1083,9 +1317,9 @@ function SoftWindowBackdrop({ theme, reducedDetail }: { theme: ThemeMode; reduce
   if (!texture) return null
 
   return (
-    <mesh position={[0, 1.25, -3.6]} scale={[7.8, 5.8, 1]}>
+    <mesh position={[0, 1.18, -3.25]} scale={[8.7, 6.3, 1]}>
       <planeGeometry args={[1, 1]} />
-      <meshBasicMaterial map={texture} transparent opacity={theme === "dark" ? 0.62 : 0.92} depthWrite={false} toneMapped={false} />
+      <meshBasicMaterial map={texture} transparent opacity={theme === "dark" ? 0.52 : 0.72} depthWrite={false} toneMapped={false} />
     </mesh>
   )
 }
@@ -1098,6 +1332,7 @@ function GroundedHeroRing({
   heroRotation,
   styleSettings,
   reducedDetail,
+  autoRotate,
 }: {
   ringSize: number
   bandWidth: number
@@ -1106,30 +1341,65 @@ function GroundedHeroRing({
   heroRotation: [number, number, number]
   styleSettings: StyleSettings
   reducedDetail: boolean
+  autoRotate: boolean
 }) {
-  const groupRef = useRef<THREE.Group>(null)
+  const placementGroupRef = useRef<THREE.Group>(null)
+  const measuredGroupRef = useRef<THREE.Group>(null)
+  const spinGroupRef = useRef<THREE.Group>(null)
+
   const [groundOffset, setGroundOffset] = useState(0)
 
+  const scale = reducedDetail ? 0.58 : 0.62
+
+  useFrame((_, delta) => {
+    if (!spinGroupRef.current || !autoRotate) return
+    spinGroupRef.current.rotation.y += delta * 0.22
+  })
+
   useEffect(() => {
-    const group = groupRef.current
-    if (!group) return
+    const placementGroup = placementGroupRef.current
+    const measuredGroup = measuredGroupRef.current
+    const spinGroup = spinGroupRef.current
 
-    group.updateWorldMatrix(true, true)
-    const box = new THREE.Box3().setFromObject(group)
+    if (!placementGroup || !measuredGroup) return
 
-    const targetBottom = HERO_FLOOR_Y + HERO_FLOOR_CLEARANCE
-    const correction = targetBottom - box.min.y
+    const prevY = placementGroup.position.y
+    const prevSpin = spinGroup?.rotation.y ?? 0
 
-    if (Number.isFinite(correction) && Math.abs(correction) > 0.001) {
-      setGroundOffset((current) => current + correction)
+    placementGroup.position.y = 0
+    if (spinGroup) spinGroup.rotation.y = 0
+
+    placementGroup.updateWorldMatrix(true, true)
+    measuredGroup.updateWorldMatrix(true, true)
+
+    const box = new THREE.Box3().setFromObject(measuredGroup)
+
+    placementGroup.position.y = prevY
+    if (spinGroup) spinGroup.rotation.y = prevSpin
+
+    const targetY = HERO_FLOOR_Y + HERO_FLOOR_CLEARANCE
+    const correction = targetY - box.min.y
+
+    if (Number.isFinite(correction)) {
+      setGroundOffset(correction)
     }
-  }, [ringSize, bandWidth, style, finish, heroRotation, styleSettings, groundOffset])
-
-  const baseY = reducedDetail ? 0.01 : -0.06
+  }, [
+    ringSize,
+    bandWidth,
+    style,
+    finish,
+    heroRotation,
+    styleSettings,
+    reducedDetail,
+  ])
 
   return (
-    <group ref={groupRef} position={[0.02, baseY + groundOffset, 0]} rotation={heroRotation} scale={0.52}>
-      <Ring size={ringSize} width={bandWidth} style={style} finish={finish} previewRotation={[0, 0, 0]} styleSettings={styleSettings} reducedDetail={reducedDetail} />
+    <group ref={placementGroupRef} position={[0, groundOffset, 0]}>
+      <group ref={measuredGroupRef} rotation={heroRotation} scale={scale}>
+        <group ref={spinGroupRef}>
+          <Ring size={ringSize} width={bandWidth} style={style} finish={finish} previewRotation={[0, 0, 0]} styleSettings={styleSettings} reducedDetail={reducedDetail} />
+        </group>
+      </group>
     </group>
   )
 }
@@ -1228,16 +1498,16 @@ function OrthoView({
       >
         <FixedCamera position={cameraPosition} up={cameraUp} />
         <color attach="background" args={[orthoBackground]} />
-        <ambientLight intensity={theme === "dark" ? 0.92 : 0.8} />
-        <hemisphereLight args={["#fff1dc", hemiGround, theme === "dark" ? 0.82 : 0.65]} />
-        <directionalLight position={[3, 5, 4]} intensity={1.5} color="#fff4e3" />
-        <directionalLight position={[-4, 1, 2]} intensity={1.1} color="#d8e1f2" />
+        <ambientLight intensity={1.4} />
+        <hemisphereLight args={["#fff1dc", hemiGround, theme === "dark" ? 0.9 : 0.72]} />
+        <directionalLight position={[3, 5, 4]} intensity={2.2} color="#fff4e3" />
+        <directionalLight position={[-4, 1, 2]} intensity={1.8} color="#d8e1f2" />
         {kind === "top" ? (
           <gridHelper args={[4, 12, gridMain, gridSoft]} />
         ) : (
           <gridHelper args={[4, 12, gridMain, gridSoft]} rotation={[Math.PI / 2, 0, 0]} position={[0, 0, -0.16]} />
         )}
-        <Ring size={ringSize} width={bandWidth} style={style} finish={finish} previewRotation={[0, 0, 0]} styleSettings={styleSettings} reducedDetail={reducedDetail} />
+        <Ring size={ringSize} width={bandWidth} style={style} finish={finish} previewRotation={[0, 0, 0]} styleSettings={styleSettings} reducedDetail={reducedDetail} technicalView />
       </Canvas>
     </section>
   )
@@ -1252,6 +1522,7 @@ function StudioScene({
   styleSettings,
   theme,
   reducedDetail,
+  autoRotate,
 }: {
   ringSize: number
   bandWidth: number
@@ -1261,27 +1532,69 @@ function StudioScene({
   styleSettings: StyleSettings
   theme: ThemeMode
   reducedDetail: boolean
+  autoRotate: boolean
 }) {
-  const heroBackground = theme === "dark" ? "#161311" : "#f4f1ec"
-  const heroFog = theme === "dark" ? "#161311" : "#f4f1ec"
-  const floorColor = theme === "dark" ? "#1d1916" : "#eee9e2"
-  const contactShadowColor = theme === "dark" ? "#0b0908" : "#9f9890"
+  const heroBackground = theme === "dark" ? "#16110d" : "#f4ece1"
+  const heroFog = heroBackground
+  const floorColor = heroBackground
+  const contactShadowColor = theme === "dark" ? "#100d0b" : "#b7a48f"
 
   return (
     <>
       <color attach="background" args={[heroBackground]} />
-      <fog attach="fog" args={[heroFog, 6, 12]} />
+      <fog attach="fog" args={[heroFog, 2.8, 8]} />
 
-      <Environment background={false} resolution={reducedDetail ? 512 : 2048}>
-        <Lightformer form="rect" intensity={8} color="#ffffff" scale={[14, 9, 1]} position={[0, 0.8, 4.2]} rotation={[0, Math.PI, 0]} />
-        <Lightformer form="rect" intensity={6} color="#f7f4ee" scale={[8, 3.5, 1]} position={[0, 1.65, 3.2]} rotation={[0.12, Math.PI, 0]} />
-        <Lightformer form="rect" intensity={9} color="#ffffff" scale={[0.75, 7, 1]} position={[-1.05, 0.55, 2.4]} rotation={[0, Math.PI / 10, 0]} />
-        <Lightformer form="rect" intensity={8} color="#ffffff" scale={[0.8, 7, 1]} position={[1.05, 0.55, 2.4]} rotation={[0, -Math.PI / 10, 0]} />
-        <Lightformer form="rect" intensity={7} color="#ffffff" scale={[10, 4, 1]} position={[0, 2.15, 2.7]} rotation={[0.28, Math.PI, 0]} />
+      <Environment background={false} resolution={reducedDetail ? 1024 : 2048}>
+        <Lightformer
+          form="rect"
+          intensity={theme === "dark" ? 3.8 : 4.6}
+          color="#fff8ef"
+          scale={[14, 9, 1]}
+          position={[0, 1.1, 4.2]}
+          rotation={[0, Math.PI, 0]}
+        />
+        <Lightformer
+          form="rect"
+          intensity={theme === "dark" ? 7.5 : 8.8}
+          color="#ffffff"
+          scale={[0.62, 5.8, 1]}
+          position={[-1.65, 0.55, 2.45]}
+          rotation={[0, Math.PI / 8, 0]}
+        />
+        <Lightformer
+          form="rect"
+          intensity={theme === "dark" ? 6.8 : 7.9}
+          color="#fffdf7"
+          scale={[0.72, 5.8, 1]}
+          position={[1.75, 0.55, 2.45]}
+          rotation={[0, -Math.PI / 8, 0]}
+        />
+        <Lightformer
+          form="rect"
+          intensity={theme === "dark" ? 4.8 : 5.8}
+          color="#fff4e6"
+          scale={[8, 2.2, 1]}
+          position={[0, 2.55, 2.0]}
+          rotation={[0.28, Math.PI, 0]}
+        />
+        <Lightformer
+          form="rect"
+          intensity={theme === "dark" ? 1.7 : 2.4}
+          color="#d0a55f"
+          scale={[0.75, 4.2, 1]}
+          position={[2.4, 0.25, 1.65]}
+          rotation={[0, -Math.PI / 4.8, 0]}
+        />
       </Environment>
 
-      <ambientLight intensity={theme === "dark" ? 0.5 : 0.4} color="#ffffff" />
-      <hemisphereLight args={["#ffffff", theme === "dark" ? "#2a241f" : "#e6dfd6", theme === "dark" ? 0.92 : 0.75]} />
+      <ambientLight intensity={theme === "dark" ? 0.42 : 0.48} color="#fff6ea" />
+      <hemisphereLight
+        args={[
+          "#fff9f1",
+          theme === "dark" ? "#5b4a3c" : "#d8c4aa",
+          theme === "dark" ? 0.95 : 1.05,
+        ]}
+      />
 
       <SoftWindowBackdrop theme={theme} reducedDetail={reducedDetail} />
 
@@ -1293,33 +1606,34 @@ function StudioScene({
         heroRotation={heroRotation}
         styleSettings={styleSettings}
         reducedDetail={reducedDetail}
+        autoRotate={autoRotate}
       />
 
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, HERO_FLOOR_Y, 0]} receiveShadow>
-        <planeGeometry args={[22, 22]} />
+        <planeGeometry args={[80, 80]} />
         <MeshReflectorMaterial
-          blur={[360, 110]}
+          blur={reducedDetail ? [420, 140] : [360, 110]}
           resolution={reducedDetail ? 1024 : 2048}
-          mirror={theme === "dark" ? 0.42 : 0.68}
-          mixBlur={1.2}
-          mixStrength={theme === "dark" ? 1.35 : 1.95}
-          mixContrast={theme === "dark" ? 0.96 : 1.2}
-          roughness={theme === "dark" ? 0.22 : 0.16}
+          mirror={theme === "dark" ? 0.34 : 0.42}
+          mixBlur={theme === "dark" ? 1.15 : 1.35}
+          mixStrength={theme === "dark" ? 1.15 : 1.35}
+          mixContrast={theme === "dark" ? 0.95 : 1.02}
+          roughness={theme === "dark" ? 0.34 : 0.24}
           metalness={0}
           color={floorColor}
           depthScale={theme === "dark" ? 0.18 : 0.24}
-          minDepthThreshold={0.4}
-          maxDepthThreshold={theme === "dark" ? 1.45 : 1.7}
-          reflectorOffset={0.01}
+          minDepthThreshold={0.18}
+          maxDepthThreshold={theme === "dark" ? 1.2 : 1.45}
+          reflectorOffset={0.015}
         />
       </mesh>
 
       <ContactShadows
-        position={[0, HERO_FLOOR_Y + 0.01, 0]}
-        opacity={0.22}
-        scale={5.8}
-        blur={4.4}
-        far={2.4}
+        position={[0, HERO_FLOOR_Y + 0.006, 0]}
+        opacity={theme === "dark" ? 0.16 : 0.18}
+        scale={4.8}
+        blur={5.2}
+        far={1.8}
         color={contactShadowColor}
         resolution={reducedDetail ? 512 : 1024}
       />
@@ -1343,6 +1657,42 @@ function PanelSection({ title, children }: { title: string; children: ReactNode 
     <section className="panel-section">
       <p className="panel-section-label">{title}</p>
       <div className="panel-section-body">{children}</div>
+    </section>
+  )
+}
+
+function AppLayout({
+  children,
+  theme,
+  layoutMode,
+}: {
+  children: ReactNode
+  theme: ThemeMode
+  layoutMode: LayoutMode
+}) {
+  return (
+    <div className={`app-shell theme-${theme} layout-${layoutMode}`}>
+      <div className="app-layout">{children}</div>
+    </div>
+  )
+}
+
+function HeroSection({ children, label }: { children: ReactNode; label: string }) {
+  return (
+    <section className="hero-section preview-sticky" aria-label={label}>
+      {children}
+    </section>
+  )
+}
+
+function ControlsPanel({ children }: { children: ReactNode }) {
+  return <aside className="controls-panel">{children}</aside>
+}
+
+function TechnicalViews({ children, label }: { children: ReactNode; label: string }) {
+  return (
+    <section className="technical-views" aria-label={label}>
+      {children}
     </section>
   )
 }
@@ -1372,11 +1722,11 @@ function App() {
   const [groovedWidthMm, setGroovedWidthMm] = useState(initialConfig.groovedWidthMm)
   const [groovedDepthMm, setGroovedDepthMm] = useState(initialConfig.groovedDepthMm)
   const [groovedCount, setGroovedCount] = useState(initialConfig.groovedCount)
-  const [groovedOuterCrestMm, setGroovedOuterCrestMm] = useState(initialConfig.groovedOuterCrestMm)
+  const [groovedEdgeSpaceMm, setGroovedEdgeSpaceMm] = useState(initialConfig.groovedEdgeSpaceMm)
   const [facetedCount, setFacetedCount] = useState(initialConfig.facetedCount)
   const [facetedEdgeMode, setFacetedEdgeMode] = useState<FacetedEdgeMode>(initialConfig.facetedEdgeMode)
   const [openOpeningMm, setOpenOpeningMm] = useState(initialConfig.openOpeningMm)
-  const [openRoundedEdgeRadiusMm, setOpenRoundedEdgeRadiusMm] = useState(initialConfig.openRoundedEdgeRadiusMm)
+  const [openGapEndRoundingMm, setOpenGapEndRoundingMm] = useState(initialConfig.openGapEndRoundingMm)
   const [diagonalOpeningMm, setDiagonalOpeningMm] = useState(initialConfig.diagonalOpeningMm)
   const [diagonalDirection, setDiagonalDirection] = useState<DiagonalDirection>(initialConfig.diagonalDirection)
   const [diagonalEdgeFinish, setDiagonalEdgeFinish] = useState<DiagonalEdgeTreatment>(initialConfig.diagonalEdgeFinish)
@@ -1385,13 +1735,20 @@ function App() {
   const [woodInlayWoodType, setWoodInlayWoodType] = useState<WoodType>(initialConfig.woodInlayWoodType)
   const [woodInlayWidthMm, setWoodInlayWidthMm] = useState(initialConfig.woodInlayWidthMm)
   const [woodInlayChamfer, setWoodInlayChamfer] = useState(initialConfig.woodInlayChamfer)
+  const [outerEdgeChamferMm, setOuterEdgeChamferMm] = useState(initialConfig.outerEdgeChamferMm)
   const [statusMessage, setStatusMessage] = useState("")
   const [submitState, setSubmitState] = useState<SubmitState>("idle")
-  const [autoRotate, setAutoRotate] = useState(false)
+  const [autoRotate, setAutoRotate] = useState(true)
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null)
-  const [isMobileLayout, setIsMobileLayout] = useState(() => {
-    if (typeof window === "undefined") return false
-    return window.innerWidth <= 768
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => {
+    if (typeof window === "undefined") return "desktop"
+    const width = window.innerWidth
+    if (width < 500) return "compactMobile"
+    if (width < 768) return "mobile"
+    if (width < 1024) return "tablet"
+    if (width > 1400) return "ultraWide"
+    if (width <= 1120) return "laptop"
+    return "desktop"
   })
 
   const heroRotation: [number, number, number] = DEFAULT_HERO_ROTATION
@@ -1429,7 +1786,10 @@ function App() {
     grooveDepth: language === "en" ? "Groove depth" : "Rillentiefe",
     grooveWidth: language === "en" ? "Groove width" : "Rillenbreite",
     outerCrest: language === "en" ? "Outer crest" : "Außensteg",
-    grooveHint: language === "en" ? "Maximum depends on band width and groove width." : "Das Maximum hängt von Bandbreite und Rillenbreite ab.",
+    grooveHint:
+      language === "en"
+        ? "Maximum depends on band width, groove width, and edge spacing."
+        : "Das Maximum hängt von Bandbreite, Rillenbreite und Kantenabstand ab.",
     facetCount: language === "en" ? "Facet count" : "Facettenanzahl",
     facetEdgeMode: language === "en" ? "Edge mode" : "Kantenmodus",
     facetSoft: language === "en" ? "Soft edges" : "Weiche Kanten",
@@ -1470,13 +1830,35 @@ function App() {
   useEffect(() => {
     if (typeof window === "undefined") return
 
-    const mediaQuery = window.matchMedia("(max-width: 768px)")
-    const updateLayoutMode = () => setIsMobileLayout(mediaQuery.matches)
+    const updateLayoutMode = () => {
+      const width = window.innerWidth
+      if (width < 500) {
+        setLayoutMode("compactMobile")
+        return
+      }
+      if (width < 768) {
+        setLayoutMode("mobile")
+        return
+      }
+      if (width < 1024) {
+        setLayoutMode("tablet")
+        return
+      }
+      if (width > 1400) {
+        setLayoutMode("ultraWide")
+        return
+      }
+      if (width <= 1120) {
+        setLayoutMode("laptop")
+        return
+      }
+      setLayoutMode("desktop")
+    }
 
     updateLayoutMode()
-    mediaQuery.addEventListener("change", updateLayoutMode)
+    window.addEventListener("resize", updateLayoutMode)
 
-    return () => mediaQuery.removeEventListener("change", updateLayoutMode)
+    return () => window.removeEventListener("resize", updateLayoutMode)
   }, [])
 
   useEffect(() => {
@@ -1495,10 +1877,19 @@ function App() {
   const selectedStyle = styles.find((item) => item.id === style) ?? styles[0]
   const selectedFinish = finishes.find((item) => item.id === finish) ?? finishes[0]
   const circumference = getCircumferenceMm(ringSize)
-  const reducedDetail = isMobileLayout
-  const heroCamera = isMobileLayout ? { position: [0, 0.12, 3.95] as [number, number, number], fov: 24 } : { position: [0, 0.28, 7.45] as [number, number, number], fov: 27 }
-  const heroTarget: [number, number, number] = isMobileLayout ? [0.02, 0.04, 0] : [0.02, -0.12, 0]
-  const heroDpr: [number, number] = isMobileLayout ? [1, 1.25] : [1, 1.75]
+  const isTabletLayout = layoutMode === "tablet"
+  const isMobileLayout = layoutMode === "mobile" || layoutMode === "compactMobile"
+  const isLandscapeMobile =
+    typeof window !== "undefined" &&
+    isMobileLayout &&
+    window.matchMedia("(orientation: landscape)").matches
+  const reducedDetail = isTabletLayout || isMobileLayout
+  const heroCamera = layoutMode === "ultraWide"
+    ? { position: [0, 0.03, 5.5] as [number, number, number], fov: 19 }
+    : { position: [0, 0.03, 5.5] as [number, number, number], fov: 20 }
+
+  const heroTarget: [number, number, number] = [0, -1, 0]
+  const heroDpr: [number, number] = reducedDetail ? [1, 1.25] : [1, 1.75]
 
   useEffect(() => {
     const validated = validateStyleSettings({
@@ -1511,11 +1902,11 @@ function App() {
       groovedWidthMm,
       groovedDepthMm,
       groovedCount,
-      groovedOuterCrestMm,
+      groovedEdgeSpaceMm,
       facetedCount,
       facetedEdgeMode,
       openOpeningMm,
-      openRoundedEdgeRadiusMm,
+      openGapEndRoundingMm,
       diagonalOpeningMm,
       diagonalDirection,
       diagonalEdgeFinish,
@@ -1524,18 +1915,20 @@ function App() {
       woodInlayWoodType,
       woodInlayWidthMm,
       woodInlayChamfer,
+      outerEdgeChamferMm,
     })
 
     const hasChanges =
       validated.groovedWidthMm !== groovedWidthMm ||
       validated.groovedDepthMm !== groovedDepthMm ||
       validated.groovedCount !== groovedCount ||
-      validated.groovedOuterCrestMm !== groovedOuterCrestMm ||
+      validated.groovedEdgeSpaceMm !== groovedEdgeSpaceMm ||
       validated.facetedCount !== facetedCount ||
       validated.openOpeningMm !== openOpeningMm ||
-      validated.openRoundedEdgeRadiusMm !== openRoundedEdgeRadiusMm ||
+      validated.openGapEndRoundingMm !== openGapEndRoundingMm ||
       validated.diagonalOpeningMm !== diagonalOpeningMm ||
-      validated.woodInlayWidthMm !== woodInlayWidthMm
+      validated.woodInlayWidthMm !== woodInlayWidthMm ||
+      validated.outerEdgeChamferMm !== outerEdgeChamferMm
 
     if (!hasChanges) return
 
@@ -1543,12 +1936,13 @@ function App() {
       if (validated.groovedWidthMm !== groovedWidthMm) setGroovedWidthMm(validated.groovedWidthMm)
       if (validated.groovedDepthMm !== groovedDepthMm) setGroovedDepthMm(validated.groovedDepthMm)
       if (validated.groovedCount !== groovedCount) setGroovedCount(validated.groovedCount)
-      if (validated.groovedOuterCrestMm !== groovedOuterCrestMm) setGroovedOuterCrestMm(validated.groovedOuterCrestMm)
+      if (validated.groovedEdgeSpaceMm !== groovedEdgeSpaceMm) setGroovedEdgeSpaceMm(validated.groovedEdgeSpaceMm)
       if (validated.facetedCount !== facetedCount) setFacetedCount(validated.facetedCount)
       if (validated.openOpeningMm !== openOpeningMm) setOpenOpeningMm(validated.openOpeningMm)
-      if (validated.openRoundedEdgeRadiusMm !== openRoundedEdgeRadiusMm) setOpenRoundedEdgeRadiusMm(validated.openRoundedEdgeRadiusMm)
+      if (validated.openGapEndRoundingMm !== openGapEndRoundingMm) setOpenGapEndRoundingMm(validated.openGapEndRoundingMm)
       if (validated.diagonalOpeningMm !== diagonalOpeningMm) setDiagonalOpeningMm(validated.diagonalOpeningMm)
       if (validated.woodInlayWidthMm !== woodInlayWidthMm) setWoodInlayWidthMm(validated.woodInlayWidthMm)
+      if (validated.outerEdgeChamferMm !== outerEdgeChamferMm) setOuterEdgeChamferMm(validated.outerEdgeChamferMm)
     })
   }, [
     language,
@@ -1560,11 +1954,11 @@ function App() {
     groovedWidthMm,
     groovedDepthMm,
     groovedCount,
-    groovedOuterCrestMm,
+    groovedEdgeSpaceMm,
     facetedCount,
     facetedEdgeMode,
     openOpeningMm,
-    openRoundedEdgeRadiusMm,
+    openGapEndRoundingMm,
     diagonalOpeningMm,
     diagonalDirection,
     diagonalEdgeFinish,
@@ -1573,30 +1967,55 @@ function App() {
     woodInlayWoodType,
     woodInlayWidthMm,
     woodInlayChamfer,
+    outerEdgeChamferMm,
   ])
 
-  const styleSettings: StyleSettings = {
-    ringSize,
-    bandWidth,
-    groovedWidthMm,
-    groovedDepthMm,
-    groovedCount,
-    groovedOuterCrestMm,
-    facetedCount,
-    facetedEdgeMode,
-    openOpeningMm,
-    openRoundedEdgeRadiusMm,
-    diagonalOpeningMm,
-    diagonalDirection,
-    diagonalEdgeFinish,
-    diagonalCutAngle,
-    woodSleeveWoodType,
-    woodInlayWoodType,
-    woodInlayWidthMm,
-    woodInlayChamfer,
-  }
+  const styleSettings = useMemo<StyleSettings>(
+    () => ({
+      ringSize,
+      bandWidth,
+      groovedWidthMm,
+      groovedDepthMm,
+      groovedCount,
+      groovedEdgeSpaceMm,
+      facetedCount,
+      facetedEdgeMode,
+      openOpeningMm,
+      openGapEndRoundingMm,
+      diagonalOpeningMm,
+      diagonalDirection,
+      diagonalEdgeFinish,
+      diagonalCutAngle,
+      woodSleeveWoodType,
+      woodInlayWoodType,
+      woodInlayWidthMm,
+      woodInlayChamfer,
+      outerEdgeChamferMm,
+    }),
+    [
+      ringSize,
+      bandWidth,
+      groovedWidthMm,
+      groovedDepthMm,
+      groovedCount,
+      groovedEdgeSpaceMm,
+      facetedCount,
+      facetedEdgeMode,
+      openOpeningMm,
+      openGapEndRoundingMm,
+      diagonalOpeningMm,
+      diagonalDirection,
+      diagonalEdgeFinish,
+      diagonalCutAngle,
+      woodSleeveWoodType,
+      woodInlayWoodType,
+      woodInlayWidthMm,
+      woodInlayChamfer,
+      outerEdgeChamferMm,
+    ]
+  )
 
-  const maxGrooveCount = getMaxGrooveCount(bandWidth, groovedWidthMm, groovedOuterCrestMm)
+  const maxGrooveCount = getMaxGrooveCount(bandWidth, groovedWidthMm, groovedEdgeSpaceMm)
   const facetedArcLengthMm = circumference / facetedCount
   const diagonalCutAngleDegrees = getDiagonalCutAngleDegrees(diagonalCutAngle)
   const woodInlayMaxWidthMm = Math.max(2, bandWidth - WOOD_INLAY_EDGE_MM * 2)
@@ -1611,19 +2030,19 @@ function App() {
   const activeStyleValues = (() => {
     switch (style) {
       case "grooved":
-        return { groovedWidthMm, groovedDepthMm, groovedCount, groovedOuterCrestMm }
+        return { groovedWidthMm, groovedDepthMm, groovedCount, groovedEdgeSpaceMm, outerEdgeChamferMm }
       case "faceted":
-        return { facetedCount, facetedArcLengthMm: Number(facetedArcLengthMm.toFixed(1)), facetedEdgeMode }
+        return { facetedCount, facetedArcLengthMm: Number(facetedArcLengthMm.toFixed(1)), facetedEdgeMode, outerEdgeChamferMm }
       case "open":
-        return { openOpeningMm, openRoundedEdgeRadiusMm }
+        return { openOpeningMm, openGapEndRoundingMm, outerEdgeChamferMm }
       case "diagonal":
-        return { diagonalOpeningMm, diagonalDirection, diagonalEdgeFinish, diagonalCutAngleDegrees }
+        return { diagonalOpeningMm, diagonalDirection, diagonalEdgeFinish, diagonalCutAngleDegrees, outerEdgeChamferMm }
       case "woodSleeve":
-        return { woodSleeveWoodType, woodSleeveThicknessMm: WOOD_SLEEVE_THICKNESS_MM }
+        return { woodSleeveWoodType, woodSleeveThicknessMm: WOOD_SLEEVE_THICKNESS_MM, outerEdgeChamferMm }
       case "woodInlay":
-        return { woodInlayWoodType, woodInlayWidthMm, woodInlayMetalEdgeMm: WOOD_INLAY_EDGE_MM, woodInlayChamfer }
+        return { woodInlayWoodType, woodInlayWidthMm, woodInlayMetalEdgeMm: WOOD_INLAY_EDGE_MM, woodInlayChamfer, outerEdgeChamferMm }
       default:
-        return {}
+        return { outerEdgeChamferMm }
     }
   })()
 
@@ -1645,7 +2064,7 @@ function App() {
           `${formatValue(language, groovedWidthMm)} mm ${language === "en" ? "groove width" : "Rillenbreite"}`,
           `${formatValue(language, groovedDepthMm)} mm ${language === "en" ? "groove depth" : "Rillentiefe"}`,
           `${groovedCount} ${language === "en" ? "grooves" : "Rillen"}`,
-          groovedCount > 1 ? `${formatValue(language, groovedOuterCrestMm)} mm ${language === "en" ? "outer crest" : "Außensteg"}` : null,
+          `${formatValue(language, groovedEdgeSpaceMm)} mm ${language === "en" ? "edge spacing" : "Kantenabstand"}`,
         ]
       : style === "faceted"
       ? [
@@ -1656,7 +2075,7 @@ function App() {
       : style === "open"
       ? [
           `${formatValue(language, openOpeningMm)} mm ${language === "en" ? "opening" : "Öffnung"}`,
-          `${formatValue(language, openRoundedEdgeRadiusMm)} mm ${language === "en" ? "edge radius" : "Rundungsradius"}`,
+          `${formatValue(language, openGapEndRoundingMm)} mm ${language === "en" ? "gap end rounding" : "Rundung der Spaltenden"}`,
         ]
       : style === "diagonal"
       ? [
@@ -1697,11 +2116,11 @@ function App() {
     setGroovedWidthMm(DEFAULT_CONFIG.groovedWidthMm)
     setGroovedDepthMm(DEFAULT_CONFIG.groovedDepthMm)
     setGroovedCount(DEFAULT_CONFIG.groovedCount)
-    setGroovedOuterCrestMm(DEFAULT_CONFIG.groovedOuterCrestMm)
+    setGroovedEdgeSpaceMm(DEFAULT_CONFIG.groovedEdgeSpaceMm)
     setFacetedCount(DEFAULT_CONFIG.facetedCount)
     setFacetedEdgeMode(DEFAULT_CONFIG.facetedEdgeMode)
     setOpenOpeningMm(DEFAULT_CONFIG.openOpeningMm)
-    setOpenRoundedEdgeRadiusMm(DEFAULT_CONFIG.openRoundedEdgeRadiusMm)
+    setOpenGapEndRoundingMm(DEFAULT_CONFIG.openGapEndRoundingMm)
     setDiagonalOpeningMm(DEFAULT_CONFIG.diagonalOpeningMm)
     setDiagonalDirection(DEFAULT_CONFIG.diagonalDirection)
     setDiagonalEdgeFinish(DEFAULT_CONFIG.diagonalEdgeFinish)
@@ -1710,6 +2129,7 @@ function App() {
     setWoodInlayWoodType(DEFAULT_CONFIG.woodInlayWoodType)
     setWoodInlayWidthMm(DEFAULT_CONFIG.woodInlayWidthMm)
     setWoodInlayChamfer(DEFAULT_CONFIG.woodInlayChamfer)
+    setOuterEdgeChamferMm(DEFAULT_CONFIG.outerEdgeChamferMm)
     setName(getDefaultName(language))
     setStatusMessage(language === "en" ? "Configuration reset." : "Konfiguration zurückgesetzt.")
   }
@@ -1820,7 +2240,7 @@ function App() {
   }
 
   return (
-    <div className={`app-shell theme-${theme}`}>
+    <AppLayout theme={theme} layoutMode={isLandscapeMobile ? "laptop" : layoutMode}>
       <button
         type="button"
         className="topbar-toggle theme-toggle"
@@ -1839,7 +2259,7 @@ function App() {
         {language === "en" ? "DE" : "EN"}
       </button>
 
-      <aside className="app-sidebar">
+      <ControlsPanel>
         <div className="sidebar-header">
           <p className="eyebrow">{language === "en" ? "Custom stainless steel ring" : "Individueller Edelstahlring"}</p>
           <h1>{t.title}</h1>
@@ -1869,7 +2289,16 @@ function App() {
             </Field>
 
             <Field label={`${t.diameter}: ${formatValue(language, ringSize)} mm`} htmlFor={diameterRangeId}>
-              <input id={diameterRangeId} className="range-input" type="range" min="14" max="24" step="0.1" value={ringSize} onChange={(event) => setRingSize(Number(event.target.value))} />
+              <input
+                id={diameterRangeId}
+                className="range-input"
+                type="range"
+                min={String(sizes[0].diameter)}
+                max={String(sizes[sizes.length - 1].diameter)}
+                step="0.1"
+                value={ringSize}
+                onChange={(event) => setRingSize(snapToNearestSize(Number(event.target.value)))}
+              />
             </Field>
 
             <Field label={`${t.width}: ${formatValue(language, bandWidth)} mm`} htmlFor={widthRangeId}>
@@ -1899,23 +2328,29 @@ function App() {
           </fieldset>
         </PanelSection>
 
-        {(style === "grooved" || style === "faceted" || style === "hammered" || style === "open" || style === "diagonal" || style === "woodSleeve" || style === "woodInlay") && (
+        {(style === "simple" || style === "grooved" || style === "faceted" || style === "hammered" || style === "open" || style === "diagonal" || style === "woodSleeve" || style === "woodInlay") && (
           <PanelSection title={t.styleOptionsSection}>
             <div className="option-group">
+              {(style === "simple" || style === "grooved" || style === "faceted" || style === "open" || style === "diagonal" || style === "woodSleeve" || style === "woodInlay") && (
+                <Field
+                  label={`${language === "en" ? "Outer edge chamfer" : "Außenschrägung"}: ${outerEdgeChamferMm === 0 ? (language === "en" ? "none" : "keine") : `${formatValue(language, outerEdgeChamferMm)} mm`}`}
+                  htmlFor={`${styleOptionsGroupId}-outer-edge-chamfer`}
+                >
+                  <select
+                    id={`${styleOptionsGroupId}-outer-edge-chamfer`}
+                    className="field-input"
+                    value={String(outerEdgeChamferMm)}
+                    onChange={(event) => setOuterEdgeChamferMm(Number(event.target.value))}
+                  >
+                    <option value="0">{language === "en" ? "None" : "Keine"}</option>
+                    <option value="0.3">0.3 mm</option>
+                    <option value="0.6">0.6 mm</option>
+                  </select>
+                </Field>
+              )}
+
               {style === "grooved" && (
                 <>
-                  <Field label={`${t.grooveCount}: ${groovedCount} / max ${maxGrooveCount}`} htmlFor={`${styleOptionsGroupId}-grooved-count`}>
-                    <input
-                      id={`${styleOptionsGroupId}-grooved-count`}
-                      className="range-input"
-                      type="range"
-                      min="1"
-                      max={maxGrooveCount}
-                      step="1"
-                      value={groovedCount}
-                      onChange={(event) => setGroovedCount(Number(event.target.value))}
-                    />
-                  </Field>
                   <Field label={`${t.grooveWidth}: ${formatValue(language, groovedWidthMm)} mm`} htmlFor={`${styleOptionsGroupId}-grooved-width`}>
                     <input
                       id={`${styleOptionsGroupId}-grooved-width`}
@@ -1940,20 +2375,30 @@ function App() {
                       onChange={(event) => setGroovedDepthMm(Number(event.target.value))}
                     />
                   </Field>
-                  {groovedCount > 1 && (
-                    <Field label={`${t.outerCrest}: ${formatValue(language, groovedOuterCrestMm)} mm`} htmlFor={`${styleOptionsGroupId}-grooved-crest`}>
-                      <input
-                        id={`${styleOptionsGroupId}-grooved-crest`}
-                        className="range-input"
-                        type="range"
-                        min="0.4"
-                        max="5.0"
-                        step="0.1"
-                        value={groovedOuterCrestMm}
-                        onChange={(event) => setGroovedOuterCrestMm(Number(event.target.value))}
-                      />
-                    </Field>
-                  )}
+                  <Field label={`${language === "en" ? "Space from groove to edge" : "Abstand von der Rille zur Kante"}: ${formatValue(language, groovedEdgeSpaceMm)} mm`} htmlFor={`${styleOptionsGroupId}-grooved-edge-space`}>
+                    <input
+                      id={`${styleOptionsGroupId}-grooved-edge-space`}
+                      className="range-input"
+                      type="range"
+                      min="0.5"
+                      max={Math.max(0.5, bandWidth / 2)}
+                      step="0.1"
+                      value={groovedEdgeSpaceMm}
+                      onChange={(event) => setGroovedEdgeSpaceMm(Number(event.target.value))}
+                    />
+                  </Field>
+                  <Field label={`${t.grooveCount}: ${groovedCount} / max ${maxGrooveCount}`} htmlFor={`${styleOptionsGroupId}-grooved-count`}>
+                    <input
+                      id={`${styleOptionsGroupId}-grooved-count`}
+                      className="range-input"
+                      type="range"
+                      min="1"
+                      max={maxGrooveCount}
+                      step="1"
+                      value={groovedCount}
+                      onChange={(event) => setGroovedCount(Number(event.target.value))}
+                    />
+                  </Field>
                   <p className="field-hint">{t.grooveHint}</p>
                 </>
               )}
@@ -2002,7 +2447,7 @@ function App() {
                       onChange={(event) => setOpenOpeningMm(Number(event.target.value))}
                     />
                   </Field>
-                  <Field label={`${t.openRoundedEdgeRadius}: ${formatValue(language, openRoundedEdgeRadiusMm)} mm`} htmlFor={`${styleOptionsGroupId}-open-rounded-edge`}>
+                  <Field label={`${t.openRoundedEdgeRadius}: ${formatValue(language, openGapEndRoundingMm)} mm`} htmlFor={`${styleOptionsGroupId}-open-rounded-edge`}>
                     <input
                       id={`${styleOptionsGroupId}-open-rounded-edge`}
                       className="range-input"
@@ -2010,8 +2455,8 @@ function App() {
                       min="0"
                       max="1.5"
                       step="0.1"
-                      value={openRoundedEdgeRadiusMm}
-                      onChange={(event) => setOpenRoundedEdgeRadiusMm(Number(event.target.value))}
+                      value={openGapEndRoundingMm}
+                      onChange={(event) => setOpenGapEndRoundingMm(Number(event.target.value))}
                     />
                   </Field>
                 </>
@@ -2180,25 +2625,39 @@ function App() {
           </dl>
         </section>
         </div>
-      </aside>
+      </ControlsPanel>
 
       <main className="app-main">
-        <div className="preview-sticky">
-          <div className="preview-stack">
-            <section className="main-view-card" aria-label={t.preview}>
-              <div className="hero-aspect">
-                <Canvas camera={heroCamera} shadows dpr={heroDpr} frameloop={autoRotate ? "always" : "demand"}>
-                <StudioScene ringSize={ringSize} bandWidth={bandWidth} style={style} finish={finish} heroRotation={heroRotation} styleSettings={styleSettings} theme={theme} reducedDetail={reducedDetail} />
+        <HeroSection label={t.preview}>
+          <section className="main-view-card" aria-label={t.preview}>
+            <div className="hero-aspect">
+              <Canvas
+                camera={heroCamera}
+                shadows
+                dpr={heroDpr}
+                frameloop="always"
+                gl={{
+                  antialias: true,
+                  alpha: false,
+                  powerPreference: "high-performance",
+                }}
+                onCreated={({ gl }) => {
+                  gl.toneMapping = THREE.ACESFilmicToneMapping
+                  gl.toneMappingExposure = theme === "dark" ? 1.1 : 1.16
+                  gl.outputColorSpace = THREE.SRGBColorSpace
+                }}
+              >
+                <StudioScene ringSize={ringSize} bandWidth={bandWidth} style={style} finish={finish} heroRotation={heroRotation} styleSettings={styleSettings} theme={theme} reducedDetail={reducedDetail} autoRotate={autoRotate} />
                 <OrbitControls
                   key="orbit-controls"
-                  enableDamping={false}
-                  dampingFactor={0}
+                  enableDamping
+                  dampingFactor={0.06}
                   enablePan={false}
-                  autoRotate={autoRotate}
-                  autoRotateSpeed={0.7}
+                  autoRotate={false}
+                  onStart={() => setAutoRotate(false)}
                   target={heroTarget}
-                  minDistance={isMobileLayout ? 3.8 : 4.2}
-                  maxDistance={isMobileLayout ? 6.2 : 7.5}
+                  minDistance={isMobileLayout ? 4.6 : 5.0}
+                  maxDistance={isMobileLayout ? 7.2 : 8.0}
                   minPolarAngle={Math.PI / 3.2}
                   maxPolarAngle={Math.PI / 1.95}
                 />
@@ -2213,20 +2672,19 @@ function App() {
               </button>
             </div>
           </section>
+        </HeroSection>
 
-          <section className="technical-section" aria-label={t.technicalTitle}>
-            <div className="technical-header">
-              <p className="technical-eyebrow">{t.technicalTitle}</p>
-              <p className="technical-copy">{t.technicalCopy}</p>
-            </div>
+        <TechnicalViews label={t.technicalTitle}>
+          <div className="technical-header">
+            <p className="technical-eyebrow">{t.technicalTitle}</p>
+            <p className="technical-copy">{t.technicalCopy}</p>
+          </div>
 
-            <section className="ortho-grid">
-              <OrthoView title={t.topView} kind="top" cameraPosition={[0, 3, 0]} cameraUp={[0, 0, -1]} ringSize={ringSize} bandWidth={bandWidth} style={style} finish={finish} language={language} styleSettings={styleSettings} theme={theme} reducedDetail={reducedDetail} />
-              <OrthoView title={t.frontView} kind="front" cameraPosition={[0, 0, 3]} cameraUp={[0, 1, 0]} ringSize={ringSize} bandWidth={bandWidth} style={style} finish={finish} language={language} styleSettings={styleSettings} theme={theme} reducedDetail={reducedDetail} className="ortho-card-front" />
-            </section>
+          <section className="ortho-grid">
+            <OrthoView title={t.topView} kind="top" cameraPosition={[0, 3, 0]} cameraUp={[0, 0, -1]} ringSize={ringSize} bandWidth={bandWidth} style={style} finish={finish} language={language} styleSettings={styleSettings} theme={theme} reducedDetail={reducedDetail} />
+            <OrthoView title={t.frontView} kind="front" cameraPosition={[0, 0, 3]} cameraUp={[0, 1, 0]} ringSize={ringSize} bandWidth={bandWidth} style={style} finish={finish} language={language} styleSettings={styleSettings} theme={theme} reducedDetail={reducedDetail} className="ortho-card-front" />
           </section>
-        </div>
-        </div>
+        </TechnicalViews>
       </main>
 
       {confirmAction && (
@@ -2279,7 +2737,7 @@ function App() {
           </div>
         </div>
       )}
-    </div>
+    </AppLayout>
   )
 }
 
