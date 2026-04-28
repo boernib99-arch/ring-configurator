@@ -630,6 +630,22 @@ function getDefaultName(language: Language) {
   return language === "en" ? "My Ring" : "Mein Ring"
 }
 
+function normaliseNameForValidation(value: string) {
+  return value.trim().toLowerCase()
+}
+
+function isDefaultRingName(value: string) {
+  const normalised = normaliseNameForValidation(value)
+
+  return normalised === "my ring" || normalised === "mein ring"
+}
+
+function isValidCustomerName(value: string) {
+  const trimmed = value.trim()
+
+  return trimmed.length > 0 && !isDefaultRingName(trimmed)
+}
+
 function formatValue(language: Language, value: number, digits = 1) {
   return value.toLocaleString(language === "de" ? "de-AT" : "en-US", {
     minimumFractionDigits: digits,
@@ -2565,6 +2581,18 @@ function App() {
     subtitle: language === "en" ? "Configure size, width, style and finish." : "Konfiguriere Größe, Breite, Stil und Oberfläche.",
     language: language === "en" ? "Language" : "Sprache",
     name: language === "en" ? "Name" : "Name",
+    nameRequiredHint:
+      language === "en"
+        ? "Required before submitting. Do not leave the default name."
+        : "Vor dem Senden erforderlich. Bitte nicht den Standardnamen verwenden.",
+    nameValidationMessage:
+      language === "en"
+        ? "Please replace the default name with your real name."
+        : "Bitte ersetze den Standardnamen durch deinen echten Namen.",
+    submitNameExplanation:
+      language === "en"
+        ? "Please enter your name so the maker can connect this configuration to you."
+        : "Bitte gib deinen Namen ein, damit der Hersteller diese Konfiguration dir zuordnen kann.",
     size: language === "en" ? "Size" : "Größe",
     diameter: language === "en" ? "Diameter" : "Durchmesser",
     width: language === "en" ? "Band Width" : "Breite",
@@ -2683,6 +2711,8 @@ function App() {
 
   const selectedStyle = styles.find((item) => item.id === style) ?? styles[0]
   const selectedFinish = finishes.find((item) => item.id === finish) ?? finishes[0]
+  const customerName = name.trim()
+  const isCustomerNameValid = isValidCustomerName(name)
   const circumference = getCircumferenceMm(ringSize)
   const isTabletLayout = layoutMode === "tablet"
   const isMobileLayout = layoutMode === "mobile" || layoutMode === "compactMobile"
@@ -2897,7 +2927,7 @@ function App() {
   })()
 
   const config = {
-    name,
+    name: customerName,
     language,
     diameterMm: ringSize,
     circumferenceMm: Number(circumference.toFixed(1)),
@@ -2949,7 +2979,7 @@ function App() {
       : []
 
   const configSummary = [
-    name.trim() || getDefaultName(language),
+    customerName,
     `Ø ${formatValue(language, ringSize)} mm`,
     `${formatValue(language, circumference)} mm ${language === "en" ? "circumference" : "Umfang"}`,
     `${formatValue(language, bandWidth)} mm ${language === "en" ? "band width" : "Breite"}`,
@@ -3019,6 +3049,12 @@ function App() {
 
   
   async function submitConfig() {
+    if (!isValidCustomerName(name)) {
+      setSubmitState("idle")
+      setStatusMessage(t.nameValidationMessage)
+      return
+    }
+
     setSubmitState("sending")
     setStatusMessage(language === "en" ? "Sending configuration..." : "Konfiguration wird gesendet...")
 
@@ -3169,7 +3205,16 @@ function App() {
 
           <PanelSection title={t.identitySection}>
             <Field label={t.name} htmlFor={nameId}>
-              <input id={nameId} className="field-input" value={name} onChange={(event) => setName(event.target.value)} aria-label={t.name} />
+              <input
+                id={nameId}
+                className={`field-input ${!isCustomerNameValid ? "field-input-invalid" : ""}`}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                aria-label={t.name}
+                required
+                aria-invalid={!isCustomerNameValid}
+              />
+              <span className="field-hint">{t.nameRequiredHint}</span>
             </Field>
           </PanelSection>
 
@@ -3546,7 +3591,18 @@ function App() {
 
         <PanelSection title={t.actionSection}>
           <div className="action-row action-row-primary">
-            <button type="button" className="action-button action-button-emphasis" onClick={() => setConfirmAction("submit")} disabled={submitState === "sending"}>
+            <button
+              type="button"
+              className="action-button action-button-emphasis"
+              onClick={() => {
+                if (!isCustomerNameValid) {
+                  setStatusMessage(t.nameValidationMessage)
+                  return
+                }
+                setConfirmAction("submit")
+              }}
+              disabled={submitState === "sending"}
+            >
               <span className="action-button-content">
                 <SendHorizontal aria-hidden="true" className="button-icon ui-icon" strokeWidth={1.9} />
                 <span>{t.submit}</span>
@@ -3662,15 +3718,39 @@ function App() {
                 ? "Reset configuration?"
                 : "Konfiguration zurücksetzen?"}
             </h2>
-            <p className="modal-body">
-              {confirmAction === "submit"
-                ? language === "en"
-                  ? "This will send your current ring configuration to the maker."
-                  : "Deine aktuelle Ringkonfiguration wird an den Hersteller gesendet."
-                : language === "en"
-                ? "This will discard your current settings and restore the default ring."
-                : "Deine aktuellen Einstellungen werden verworfen und der Standardring wird wiederhergestellt."}
-            </p>
+            {confirmAction === "submit" ? (
+              <>
+                <p className="modal-body">{t.submitNameExplanation}</p>
+
+                <Field label={t.name} htmlFor={`${nameId}-modal`}>
+                  <input
+                    id={`${nameId}-modal`}
+                    className={`field-input ${!isCustomerNameValid ? "field-input-invalid" : ""}`}
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    aria-label={t.name}
+                    required
+                    aria-invalid={!isCustomerNameValid}
+                    autoFocus
+                  />
+                  {!isCustomerNameValid && (
+                    <span className="field-hint field-hint-error">{t.nameValidationMessage}</span>
+                  )}
+                </Field>
+
+                <p className="modal-body">
+                  {language === "en"
+                    ? "This will send your current ring configuration to the maker."
+                    : "Deine aktuelle Ringkonfiguration wird an den Hersteller gesendet."}
+                </p>
+              </>
+            ) : (
+              <p className="modal-body">
+                {language === "en"
+                  ? "This will discard your current settings and restore the default ring."
+                  : "Deine aktuellen Einstellungen werden verworfen und der Standardring wird wiederhergestellt."}
+              </p>
+            )}
             <div className="modal-actions">
               <button type="button" className="action-button action-button-secondary" onClick={() => setConfirmAction(null)}>
                 {language === "en" ? "Cancel" : "Abbrechen"}
@@ -3679,6 +3759,7 @@ function App() {
                 type="button"
                 className={`action-button ${confirmAction === "submit" ? "action-button-emphasis" : "action-button-reset"}`}
                 onClick={() => void confirmAndRunAction()}
+                disabled={confirmAction === "submit" && (!isCustomerNameValid || submitState === "sending")}
               >
                 {confirmAction === "submit"
                   ? language === "en"

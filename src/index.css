@@ -383,6 +383,21 @@ button {
   box-shadow: var(--input-shadow);
 }
 
+
+.field-input-invalid {
+  border-color: #d45b49;
+  box-shadow: 0 0 0 3px rgba(212, 91, 73, 0.14), var(--input-shadow);
+}
+
+.field-hint-error {
+  color: #a45742;
+}
+
+body[data-theme="dark"] .field-input-invalid {
+  border-color: #e07b68;
+  box-shadow: 0 0 0 3px rgba(224, 123, 104, 0.16), var(--input-shadow);
+}
+
 .field-input:focus-visible,
 .range-input:focus-visible,
 .action-button:focus-visible,
