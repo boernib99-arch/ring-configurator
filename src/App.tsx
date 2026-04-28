@@ -35,6 +35,7 @@ type HammeredIntensity = "subtle" | "medium" | "pronounced"
 type HammeredScale = "fine" | "medium" | "coarse"
 type OpenGapWidth = "subtle" | "medium" | "bold"
 type OpenEdgeTreatment = "razor" | "softened" | "rounded"
+type OuterEdgeTreatment = "none" | "rounded" | "chamfer"
 type DiagonalGapWidth = "subtle" | "medium" | "bold"
 type DiagonalDirection = "leftRising" | "rightRising"
 type DiagonalEdgeTreatment = "razor" | "softened"
@@ -98,10 +99,13 @@ type StoredConfig = {
   woodSleeveWoodType?: WoodType
   woodSleeveThickness?: SleeveThickness
   woodInlayWoodType?: WoodType
+  woodInlayEdgeSpaceMm?: number
   woodInlayWidth?: InlayWidth | number
   woodInlayWidthMm?: number
   woodInlayDepth?: InlayDepth
   woodInlayChamfer?: boolean
+  outerEdgeTreatment?: OuterEdgeTreatment
+  outerEdgeChamferMm?: number
 }
 
 type AppConfig = {
@@ -123,9 +127,10 @@ type AppConfig = {
   diagonalDirection: DiagonalDirection
   diagonalEdgeFinish: DiagonalEdgeTreatment
   diagonalCutAngle: DiagonalCutAngle
+  outerEdgeTreatment: OuterEdgeTreatment
   woodSleeveWoodType: WoodType
   woodInlayWoodType: WoodType
-  woodInlayWidthMm: number
+  woodInlayEdgeSpaceMm: number
   woodInlayChamfer: boolean
   outerEdgeChamferMm: number
 }
@@ -145,9 +150,10 @@ type StyleSettings = {
   diagonalDirection: DiagonalDirection
   diagonalEdgeFinish: DiagonalEdgeTreatment
   diagonalCutAngle: DiagonalCutAngle
+  outerEdgeTreatment: OuterEdgeTreatment
   woodSleeveWoodType: WoodType
   woodInlayWoodType: WoodType
-  woodInlayWidthMm: number
+  woodInlayEdgeSpaceMm: number
   woodInlayChamfer: boolean
   outerEdgeChamferMm: number
 }
@@ -163,12 +169,19 @@ const ACCESS_CODE = "4827"
 const THEME_KEY = "ring-config-theme"
 const FORMSPREE_ENDPOINT = "https://formspree.io/f/mzdywkpb"
 const MM_TO_SCENE = 0.045
+const BAND_WIDTH_MIN_MM = 1.0
+const BAND_WIDTH_MAX_MM = 10.0
 const WALL_THICKNESS_MM = 2.0
 const WOOD_SLEEVE_THICKNESS_MM = 0.5
 const WOOD_INLAY_EDGE_MM = 1.0
-const METAL_LIP_MM = 0.5
+const WOOD_INLAY_MIN_EDGE_SPACE_MM = 0.5
+const WOOD_INLAY_MIN_VISIBLE_WIDTH_MM = 1.2
+const WOOD_INLAY_RECESS_MM = 0.38
+const WOOD_INLAY_SEAM_MM = 0.05
+const WOOD_INLAY_CHANNEL_CHAMFER_MM = 0.2
 const FACET_MIN_ARC_MM = 2.2
 const MIN_GROOVE_METAL_GAP_MM = 0.4
+const OUTER_EDGE_SIZE_OPTIONS = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
 const DEFAULT_CONFIG: AppConfig = {
   language: "en",
@@ -178,7 +191,7 @@ const DEFAULT_CONFIG: AppConfig = {
   finish: "polished",
   name: "My Ring",
   groovedWidthMm: 1,
-  groovedDepthMm: 0.5,
+  groovedDepthMm: 0.45,
   groovedCount: 2,
   groovedEdgeSpaceMm: 1.5,
   facetedCount: 14,
@@ -189,14 +202,64 @@ const DEFAULT_CONFIG: AppConfig = {
   diagonalDirection: "rightRising",
   diagonalEdgeFinish: "softened",
   diagonalCutAngle: "standard",
+  outerEdgeTreatment: "chamfer",
   woodSleeveWoodType: "walnut",
   woodInlayWoodType: "walnut",
-  woodInlayWidthMm: 5,
+  woodInlayEdgeSpaceMm: WOOD_INLAY_EDGE_MM,
   woodInlayChamfer: true,
   outerEdgeChamferMm: 0.6,
 }
 
+const STYLE_DEFAULTS: Record<StyleId, Partial<AppConfig>> = {
+  simple: {
+    outerEdgeChamferMm: DEFAULT_CONFIG.outerEdgeChamferMm,
+  },
+  domed: {
+    finish: "polished",
+    outerEdgeChamferMm: 0.6,
+  },
+  grooved: {
+    groovedWidthMm: 1,
+    groovedDepthMm: 0.45,
+    groovedCount: 2,
+    groovedEdgeSpaceMm: 2.0,
+    outerEdgeChamferMm: 0.6,
+  },
+  faceted: {
+    facetedCount: 20,
+    facetedEdgeMode: "soft",
+    outerEdgeChamferMm: 0.6,
+  },
+  hammered: {
+    outerEdgeChamferMm: 0.6,
+  },
+  open: {
+    openOpeningMm: 5,
+    openGapEndRoundingMm: 0.0,
+    outerEdgeChamferMm: 0.6,
+  },
+  diagonal: {
+    diagonalOpeningMm: 5,
+    diagonalDirection: "rightRising",
+    diagonalEdgeFinish: "softened",
+    diagonalCutAngle: "standard",
+    outerEdgeChamferMm: 0.6,
+  },
+  woodSleeve: {
+    woodSleeveWoodType: "walnut",
+    outerEdgeChamferMm: 0.6,
+  },
+  woodInlay: {
+    woodInlayWoodType: "walnut",
+    woodInlayEdgeSpaceMm: WOOD_INLAY_EDGE_MM,
+    woodInlayChamfer: true,
+    outerEdgeChamferMm: 0.6,
+  },
+}
+
 const DEFAULT_HERO_ROTATION: [number, number, number] = [-0.38, -0.58, -0.18]
+const AUTO_ROTATE_SPEED = 0.34
+const AUTO_ROTATE_RESUME_DELAY_MS = 1600
 const HERO_FLOOR_Y = -1.08
 const HERO_FLOOR_CLEARANCE = 0.003
 
@@ -258,6 +321,20 @@ function getCircumferenceMm(diameterMm: number) {
   return Math.PI * diameterMm
 }
 
+function useDebouncedValue<T>(value: T, delayMs: number) {
+  const [debouncedValue, setDebouncedValue] = useState(value)
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setDebouncedValue(value)
+    }, delayMs)
+
+    return () => window.clearTimeout(timeout)
+  }, [value, delayMs])
+
+  return debouncedValue
+}
+
 function getCentreRadiusMm(diameterMm: number) {
   return diameterMm / 2 + WALL_THICKNESS_MM / 2
 }
@@ -314,9 +391,211 @@ function getDiagonalCutAngleDegrees(cutAngle: DiagonalCutAngle) {
   return cutAngle === "gentle" ? 20 : cutAngle === "steep" ? 50 : 35
 }
 
+function snapOuterEdgeSizeMm(value: number) {
+  if (value < OUTER_EDGE_SIZE_OPTIONS[0] * 0.5) return 0
+
+  return OUTER_EDGE_SIZE_OPTIONS.reduce((closest, option) =>
+    Math.abs(option - value) < Math.abs(closest - value) ? option : closest
+  )
+}
+
+function getOuterEdgeSizeScene(sizeMm: number, radialLimit: number, bandHalfWidth: number) {
+  return clamp(mmToScene(sizeMm), 0, Math.min(radialLimit, bandHalfWidth * 0.45))
+}
+
+function pushUniquePoint(points: THREE.Vector2[], point: THREE.Vector2) {
+  const previous = points[points.length - 1]
+  if (previous && previous.equals(point)) return
+  points.push(point)
+}
+
+function appendUniquePoints(points: THREE.Vector2[], nextPoints: THREE.Vector2[]) {
+  nextPoints.forEach((point) => pushUniquePoint(points, point))
+}
+
+function getOuterEdgeProfile(
+  outerRadius: number,
+  bandHalfWidth: number,
+  edgeSize: number,
+  treatment: OuterEdgeTreatment
+) {
+  if (treatment === "none" || edgeSize <= 0.0001) {
+    return {
+      bottom: [new THREE.Vector2(outerRadius, -bandHalfWidth)],
+      top: [new THREE.Vector2(outerRadius, bandHalfWidth)],
+      sideStartY: -bandHalfWidth,
+      sideEndY: bandHalfWidth,
+    }
+  }
+
+  if (treatment === "rounded") {
+    const segments = 4
+    const bottomCenter = new THREE.Vector2(outerRadius - edgeSize, -bandHalfWidth + edgeSize)
+    const topCenter = new THREE.Vector2(outerRadius - edgeSize, bandHalfWidth - edgeSize)
+    const bottom: THREE.Vector2[] = []
+    const top: THREE.Vector2[] = []
+
+    for (let index = 0; index <= segments; index += 1) {
+      const t = index / segments
+      const bottomAngle = -Math.PI / 2 + t * (Math.PI / 2)
+      const topAngle = t * (Math.PI / 2)
+
+      bottom.push(
+        new THREE.Vector2(
+          bottomCenter.x + Math.cos(bottomAngle) * edgeSize,
+          bottomCenter.y + Math.sin(bottomAngle) * edgeSize
+        )
+      )
+      top.push(
+        new THREE.Vector2(
+          topCenter.x + Math.cos(topAngle) * edgeSize,
+          topCenter.y + Math.sin(topAngle) * edgeSize
+        )
+      )
+    }
+
+    return {
+      bottom,
+      top,
+      sideStartY: -bandHalfWidth + edgeSize,
+      sideEndY: bandHalfWidth - edgeSize,
+    }
+  }
+
+  return {
+    bottom: [
+      new THREE.Vector2(outerRadius - edgeSize, -bandHalfWidth),
+      new THREE.Vector2(outerRadius, -bandHalfWidth + edgeSize),
+    ],
+    top: [
+      new THREE.Vector2(outerRadius, bandHalfWidth - edgeSize),
+      new THREE.Vector2(outerRadius - edgeSize, bandHalfWidth),
+    ],
+    sideStartY: -bandHalfWidth + edgeSize,
+    sideEndY: bandHalfWidth - edgeSize,
+  }
+}
+
+function getGrooveShoulderMm(grooveWidthMm: number) {
+  return Math.min(0.22, grooveWidthMm * 0.25)
+}
+
+function getGrooveContourSection(
+  grooveStartY: number,
+  grooveEndY: number,
+  outerRadius: number,
+  grooveDepthScene: number,
+  shoulderScene: number
+) {
+  const clampedEndY = Math.max(grooveStartY, grooveEndY)
+  const grooveSpan = clampedEndY - grooveStartY
+  const shoulder = Math.min(shoulderScene, grooveSpan * 0.49)
+  const bottomStartY = Math.min(clampedEndY, grooveStartY + shoulder)
+  const bottomEndY = Math.max(bottomStartY, clampedEndY - shoulder)
+
+  return {
+    bottomStartY,
+    bottomEndY,
+    points: [
+      new THREE.Vector2(outerRadius, grooveStartY),
+      new THREE.Vector2(outerRadius - grooveDepthScene * 0.35, grooveStartY + shoulder * 0.35),
+      new THREE.Vector2(outerRadius - grooveDepthScene, bottomStartY),
+      new THREE.Vector2(outerRadius - grooveDepthScene, bottomEndY),
+      new THREE.Vector2(outerRadius - grooveDepthScene * 0.35, clampedEndY - shoulder * 0.35),
+      new THREE.Vector2(outerRadius, clampedEndY),
+    ],
+  }
+}
+
+function getOpenEndRoundingAngle(
+  point: THREE.Vector2,
+  innerRadius: number,
+  outerRadius: number,
+  bandHalfWidth: number,
+  styleSettings: StyleSettings
+) {
+  if (styleSettings.openGapEndRoundingMm <= 0) return 0
+
+  const radialSpan = Math.max(outerRadius - innerRadius, 0.0001)
+  const radialProgress = clamp((point.x - innerRadius) / radialSpan, 0, 1)
+  const normalizedBandOffset = clamp(Math.abs(point.y) / Math.max(bandHalfWidth, 0.0001), 0, 1)
+  const centreBias = Math.cos(normalizedBandOffset * Math.PI * 0.5)
+  const edgeCarry = THREE.MathUtils.lerp(0.62, 1, Math.pow(centreBias, 0.9))
+  const roundWeight = Math.pow(radialProgress, 1.28) * edgeCarry
+  const maxAngle = styleSettings.openGapEndRoundingMm / getCentreRadiusMm(styleSettings.ringSize)
+
+  return maxAngle * roundWeight
+}
+
+function refineClosedProfile(points: THREE.Vector2[], maxSegmentLength: number) {
+  if (points.length < 2 || maxSegmentLength <= 0) return points
+
+  const refined: THREE.Vector2[] = []
+
+  for (let index = 0; index < points.length; index += 1) {
+    const start = points[index]
+    const end = points[(index + 1) % points.length]
+    const distance = start.distanceTo(end)
+    const segments = Math.max(1, Math.ceil(distance / maxSegmentLength))
+
+    refined.push(start.clone())
+
+    for (let segmentIndex = 1; segmentIndex < segments; segmentIndex += 1) {
+      const t = segmentIndex / segments
+      refined.push(start.clone().lerp(end, t))
+    }
+  }
+
+  return refined
+}
+
+function getWoodInlayMaxEdgeSpaceMm(bandWidthMm: number) {
+  return Math.max(WOOD_INLAY_MIN_EDGE_SPACE_MM, bandWidthMm / 2 - WOOD_INLAY_MIN_VISIBLE_WIDTH_MM / 2)
+}
+
+function getWoodInlayWidthMm(bandWidthMm: number, woodInlayEdgeSpaceMm: number) {
+  return Math.max(0, bandWidthMm - woodInlayEdgeSpaceMm * 2)
+}
+
+function mmToBandYScene(valueMm: number, bandWidthMm: number, bandHalfWidthScene: number) {
+  return valueMm * (bandHalfWidthScene / Math.max(bandWidthMm / 2, 0.0001))
+}
+
+function getWoodInlayMeasurements(
+  styleSettings: StyleSettings,
+  bandHalfWidthScene: number,
+  outerRadius: number,
+  wallThickness: number
+) {
+  const woodInlayWidthMm = getWoodInlayWidthMm(styleSettings.bandWidth, styleSettings.woodInlayEdgeSpaceMm)
+  const inlayHalfWidth = mmToBandYScene(woodInlayWidthMm / 2, styleSettings.bandWidth, bandHalfWidthScene)
+  const metalEdge = mmToBandYScene(styleSettings.woodInlayEdgeSpaceMm, styleSettings.bandWidth, bandHalfWidthScene)
+  const recessDepth = clamp(mmToScene(WOOD_INLAY_RECESS_MM), mmToScene(0.3), Math.min(mmToScene(0.5), wallThickness * 0.32))
+  const recessedRadius = outerRadius - recessDepth
+  const channelChamfer = clamp(
+    mmToScene(WOOD_INLAY_CHANNEL_CHAMFER_MM),
+    0,
+    Math.min(recessDepth * 0.72, metalEdge * 0.4, Math.max(0, inlayHalfWidth * 0.2))
+  )
+  const seamInset = clamp(mmToScene(WOOD_INLAY_SEAM_MM), 0, Math.min(recessDepth * 0.2, Math.max(0.0006, metalEdge * 0.08)))
+  const insertChamfer = clamp(channelChamfer, 0, Math.min(recessDepth * 0.7, Math.abs(inlayHalfWidth) * 0.24))
+
+  return {
+    woodInlayWidthMm,
+    inlayHalfWidth,
+    metalEdge,
+    recessDepth,
+    recessedRadius,
+    channelChamfer,
+    seamInset,
+    insertChamfer,
+  }
+}
+
 function validateStyleSettings(config: AppConfig): AppConfig {
   const next = { ...config }
   const circumferenceMm = getCircumferenceMm(next.ringSize)
+  next.bandWidth = clamp(next.bandWidth, BAND_WIDTH_MIN_MM, BAND_WIDTH_MAX_MM)
 
   next.groovedWidthMm = clamp(next.groovedWidthMm, 0.4, 2.0)
   next.groovedDepthMm = clamp(next.groovedDepthMm, 0.1, 0.5)
@@ -335,15 +614,13 @@ function validateStyleSettings(config: AppConfig): AppConfig {
   const requiredGapMm = Math.tan((diagonalAngleDegrees * Math.PI) / 180) * next.bandWidth * 0.5
   next.diagonalOpeningMm = clamp(next.diagonalOpeningMm, Math.max(3, requiredGapMm), Math.min(8, circumferenceMm * 0.25))
 
-  const maxInlayWidthMm = next.bandWidth - WOOD_INLAY_EDGE_MM * 2
-  if (maxInlayWidthMm >= 2) {
-    next.woodInlayWidthMm = clamp(next.woodInlayWidthMm, 2, maxInlayWidthMm)
-  } else {
-    next.woodInlayWidthMm = Math.max(0.6, next.bandWidth * 0.45)
-  }
+  next.woodInlayEdgeSpaceMm = clamp(next.woodInlayEdgeSpaceMm, WOOD_INLAY_MIN_EDGE_SPACE_MM, getWoodInlayMaxEdgeSpaceMm(next.bandWidth))
 
-  next.outerEdgeChamferMm = next.outerEdgeChamferMm >= 0.45 ? 0.6 : next.outerEdgeChamferMm >= 0.15 ? 0.3 : 0
-
+  next.outerEdgeTreatment =
+    next.outerEdgeTreatment === "rounded" || next.outerEdgeTreatment === "chamfer" || next.outerEdgeTreatment === "none"
+      ? next.outerEdgeTreatment
+      : DEFAULT_CONFIG.outerEdgeTreatment
+  next.outerEdgeChamferMm = snapOuterEdgeSizeMm(next.outerEdgeChamferMm)
   return next
 }
 
@@ -470,7 +747,7 @@ function normaliseConfig(data: StoredConfig): AppConfig {
       : DEFAULT_CONFIG.diagonalCutAngle
   const woodSleeveWoodType = normaliseStyleValue(data.woodSleeveWoodType, woodTypeIds, DEFAULT_CONFIG.woodSleeveWoodType)
   const woodInlayWoodType = normaliseStyleValue(data.woodInlayWoodType, woodTypeIds, DEFAULT_CONFIG.woodInlayWoodType)
-  const woodInlayWidthMm =
+  const legacyWoodInlayWidthMm =
     typeof data.woodInlayWidthMm === "number"
       ? data.woodInlayWidthMm
       : data.woodInlayWidth === "narrow"
@@ -479,8 +756,24 @@ function normaliseConfig(data: StoredConfig): AppConfig {
       ? 4
       : data.woodInlayWidth === "medium"
       ? 3
-      : DEFAULT_CONFIG.woodInlayWidthMm
+      : null
+  const woodInlayEdgeSpaceMm =
+    typeof data.woodInlayEdgeSpaceMm === "number"
+      ? data.woodInlayEdgeSpaceMm
+      : typeof legacyWoodInlayWidthMm === "number"
+      ? (bandWidth - legacyWoodInlayWidthMm) / 2
+      : DEFAULT_CONFIG.woodInlayEdgeSpaceMm
   const woodInlayChamfer = typeof data.woodInlayChamfer === "boolean" ? data.woodInlayChamfer : true
+  const outerEdgeTreatment =
+    data.outerEdgeTreatment === "rounded" || data.outerEdgeTreatment === "chamfer" || data.outerEdgeTreatment === "none"
+      ? data.outerEdgeTreatment
+      : typeof data.outerEdgeChamferMm === "number"
+      ? data.outerEdgeChamferMm <= 0
+        ? "none"
+        : "chamfer"
+      : DEFAULT_CONFIG.outerEdgeTreatment
+  const outerEdgeChamferMm =
+    typeof data.outerEdgeChamferMm === "number" ? data.outerEdgeChamferMm : DEFAULT_CONFIG.outerEdgeChamferMm
 
   return validateStyleSettings({
     language,
@@ -503,9 +796,10 @@ function normaliseConfig(data: StoredConfig): AppConfig {
     diagonalCutAngle,
     woodSleeveWoodType,
     woodInlayWoodType,
-    woodInlayWidthMm,
+    woodInlayEdgeSpaceMm,
     woodInlayChamfer,
-    outerEdgeChamferMm: DEFAULT_CONFIG.outerEdgeChamferMm,
+    outerEdgeTreatment,
+    outerEdgeChamferMm,
   })
 }
 
@@ -533,22 +827,52 @@ function buildProfile(
 ) {
   const profile: THREE.Vector2[] = []
   const bevel = Math.min(0.045, wallThickness * 0.22, bandHalfWidth * 0.4)
-  const outerChamfer = styleSettings ? clamp(mmToScene(styleSettings.outerEdgeChamferMm), 0, Math.min(wallThickness * 0.5, bandHalfWidth * 0.45)) : bevel * 0.7
+  const outerEdgeTreatment = styleSettings?.outerEdgeTreatment ?? "chamfer"
+  const outerEdgeSize = styleSettings
+    ? getOuterEdgeSizeScene(
+        outerEdgeTreatment === "none" ? 0 : styleSettings.outerEdgeChamferMm,
+        wallThickness * 0.5,
+        bandHalfWidth
+      )
+    : bevel * 0.7
+  const outerEdge = getOuterEdgeProfile(outerRadius, bandHalfWidth, outerEdgeSize, outerEdgeTreatment)
 
-  if (style === "flat" || style === "woodSleeve" || style === "woodInlay") {
+  if (style === "woodInlay" && styleSettings) {
+    const { inlayHalfWidth, recessDepth, recessedRadius, channelChamfer, seamInset } = getWoodInlayMeasurements(
+      styleSettings,
+      bandHalfWidth,
+      outerRadius,
+      wallThickness
+    )
+
     profile.push(
       new THREE.Vector2(innerRadius, -bandHalfWidth + bevel),
-      new THREE.Vector2(innerRadius + bevel * 0.3, -bandHalfWidth),
-      new THREE.Vector2(outerRadius - outerChamfer * 1.2, -bandHalfWidth),
-      new THREE.Vector2(outerRadius - outerChamfer * 0.28, -bandHalfWidth + outerChamfer * 0.22),
-      new THREE.Vector2(outerRadius, -bandHalfWidth + outerChamfer),
-      new THREE.Vector2(outerRadius, bandHalfWidth - outerChamfer),
-      new THREE.Vector2(outerRadius - outerChamfer * 0.28, bandHalfWidth - outerChamfer * 0.22),
-      new THREE.Vector2(outerRadius - outerChamfer * 1.2, bandHalfWidth),
-      new THREE.Vector2(innerRadius + bevel * 0.3, bandHalfWidth),
-      new THREE.Vector2(innerRadius, bandHalfWidth - bevel),
-      new THREE.Vector2(innerRadius, -bandHalfWidth + bevel)
+      new THREE.Vector2(innerRadius + bevel * 0.3, -bandHalfWidth)
     )
+    appendUniquePoints(profile, outerEdge.bottom)
+    pushUniquePoint(profile, new THREE.Vector2(outerRadius, -inlayHalfWidth - channelChamfer - seamInset * 0.2))
+    profile.push(
+      new THREE.Vector2(outerRadius - seamInset, -inlayHalfWidth - seamInset * 0.45),
+      new THREE.Vector2(outerRadius - recessDepth * 0.24, -inlayHalfWidth - channelChamfer * 0.18),
+      new THREE.Vector2(recessedRadius, -inlayHalfWidth),
+      new THREE.Vector2(recessedRadius, inlayHalfWidth),
+      new THREE.Vector2(outerRadius - recessDepth * 0.24, inlayHalfWidth + channelChamfer * 0.18),
+      new THREE.Vector2(outerRadius - seamInset, inlayHalfWidth + seamInset * 0.45),
+      new THREE.Vector2(outerRadius, inlayHalfWidth + channelChamfer + seamInset * 0.2)
+    )
+    appendUniquePoints(profile, outerEdge.top)
+    profile.push(new THREE.Vector2(innerRadius + bevel * 0.3, bandHalfWidth), new THREE.Vector2(innerRadius, bandHalfWidth - bevel), new THREE.Vector2(innerRadius, -bandHalfWidth + bevel))
+  } else if (style === "flat" || style === "woodSleeve") {
+    profile.push(
+      new THREE.Vector2(innerRadius, -bandHalfWidth + bevel),
+      new THREE.Vector2(innerRadius + bevel * 0.3, -bandHalfWidth)
+    )
+    appendUniquePoints(profile, outerEdge.bottom)
+    if (outerEdge.sideEndY > outerEdge.sideStartY) {
+      pushUniquePoint(profile, new THREE.Vector2(outerRadius, outerEdge.sideEndY))
+    }
+    appendUniquePoints(profile, outerEdge.top)
+    profile.push(new THREE.Vector2(innerRadius + bevel * 0.3, bandHalfWidth), new THREE.Vector2(innerRadius, bandHalfWidth - bevel), new THREE.Vector2(innerRadius, -bandHalfWidth + bevel))
   } else if (style === "grooved" && styleSettings) {
     const grooveLayout = getGrooveLayoutMm(
       styleSettings.bandWidth,
@@ -559,63 +883,44 @@ function buildProfile(
     const grooveDepthScene = Math.min(mmToScene(styleSettings.groovedDepthMm), wallThickness * 0.58)
     const bandSceneScale = bandHalfWidth / Math.max(styleSettings.bandWidth / 2, 0.0001)
     const toBandSceneY = (valueMm: number) => valueMm * bandSceneScale
-    const grooveShoulderMm = Math.min(0.12, styleSettings.groovedWidthMm * 0.2)
-    const grooveShoulderScene = Math.max(0.0008, grooveShoulderMm * bandSceneScale)
+    const grooveShoulderScene = Math.max(0.0012, getGrooveShoulderMm(styleSettings.groovedWidthMm) * bandSceneScale)
 
-    const outerContour: THREE.Vector2[] = [new THREE.Vector2(outerRadius, -bandHalfWidth + outerChamfer)]
-    let cursorY = -bandHalfWidth + outerChamfer
+    const outerContour: THREE.Vector2[] = [...outerEdge.bottom]
+    let cursorY = outerEdge.sideStartY
 
     for (const interval of grooveLayout.intervals) {
-      const grooveStartY = clamp(toBandSceneY(interval.startMm), cursorY, bandHalfWidth - outerChamfer)
-      const grooveEndY = clamp(toBandSceneY(interval.endMm), grooveStartY, bandHalfWidth - outerChamfer)
-      const grooveLeadInEndY = Math.min(grooveEndY, grooveStartY + grooveShoulderScene)
-      const grooveLeadOutStartY = Math.max(grooveLeadInEndY, grooveEndY - grooveShoulderScene)
+      const grooveStartY = clamp(toBandSceneY(interval.startMm), cursorY, outerEdge.sideEndY)
+      const grooveEndY = clamp(toBandSceneY(interval.endMm), grooveStartY, outerEdge.sideEndY)
+      const grooveSection = getGrooveContourSection(grooveStartY, grooveEndY, outerRadius, grooveDepthScene, grooveShoulderScene)
 
-      if (grooveStartY > cursorY) {
-        outerContour.push(new THREE.Vector2(outerRadius, grooveStartY))
-      }
-
-      outerContour.push(new THREE.Vector2(outerRadius - grooveDepthScene, grooveLeadInEndY))
-
-      if (grooveLeadOutStartY > grooveLeadInEndY) {
-        outerContour.push(new THREE.Vector2(outerRadius - grooveDepthScene, grooveLeadOutStartY))
-      }
-
-      outerContour.push(new THREE.Vector2(outerRadius, grooveEndY))
+      appendUniquePoints(outerContour, grooveSection.points)
       cursorY = grooveEndY
     }
 
-    if (cursorY < bandHalfWidth - outerChamfer) {
-      outerContour.push(new THREE.Vector2(outerRadius, bandHalfWidth - outerChamfer))
+    if (cursorY < outerEdge.sideEndY) {
+      pushUniquePoint(outerContour, new THREE.Vector2(outerRadius, outerEdge.sideEndY))
     }
 
     profile.push(
       new THREE.Vector2(innerRadius, -bandHalfWidth + bevel),
       new THREE.Vector2(innerRadius + bevel * 0.3, -bandHalfWidth),
-      new THREE.Vector2(outerRadius - outerChamfer * 1.2, -bandHalfWidth),
-      new THREE.Vector2(outerRadius - outerChamfer * 0.28, -bandHalfWidth + outerChamfer * 0.22),
-      ...outerContour,
-      new THREE.Vector2(outerRadius - outerChamfer * 0.28, bandHalfWidth - outerChamfer * 0.22),
-      new THREE.Vector2(outerRadius - outerChamfer * 1.2, bandHalfWidth),
-      new THREE.Vector2(innerRadius + bevel * 0.3, bandHalfWidth),
-      new THREE.Vector2(innerRadius, bandHalfWidth - bevel),
-      new THREE.Vector2(innerRadius, -bandHalfWidth + bevel)
     )
+    appendUniquePoints(profile, outerContour)
+    appendUniquePoints(profile, outerEdge.top)
+    profile.push(new THREE.Vector2(innerRadius + bevel * 0.3, bandHalfWidth), new THREE.Vector2(innerRadius, bandHalfWidth - bevel), new THREE.Vector2(innerRadius, -bandHalfWidth + bevel))
   } else if (style === "simple" || style === "open" || style === "diagonal") {
     const shoulder = wallThickness * 0.04
     profile.push(
       new THREE.Vector2(innerRadius, -bandHalfWidth + bevel),
       new THREE.Vector2(innerRadius + bevel * 0.32, -bandHalfWidth),
-      new THREE.Vector2(outerRadius - outerChamfer * 1.35 - shoulder, -bandHalfWidth),
-      new THREE.Vector2(outerRadius - outerChamfer * 0.24, -bandHalfWidth + outerChamfer * 0.28),
-      new THREE.Vector2(outerRadius, -bandHalfWidth + outerChamfer * 0.92),
-      new THREE.Vector2(outerRadius, bandHalfWidth - outerChamfer * 0.92),
-      new THREE.Vector2(outerRadius - outerChamfer * 0.24, bandHalfWidth - outerChamfer * 0.28),
-      new THREE.Vector2(outerRadius - outerChamfer * 1.35 - shoulder, bandHalfWidth),
-      new THREE.Vector2(innerRadius + bevel * 0.32, bandHalfWidth),
-      new THREE.Vector2(innerRadius, bandHalfWidth - bevel),
-      new THREE.Vector2(innerRadius, -bandHalfWidth + bevel)
+      new THREE.Vector2(outerRadius - outerEdgeSize - shoulder, -bandHalfWidth)
     )
+    appendUniquePoints(profile, outerEdge.bottom)
+    if (outerEdge.sideEndY > outerEdge.sideStartY) {
+      pushUniquePoint(profile, new THREE.Vector2(outerRadius, outerEdge.sideEndY))
+    }
+    appendUniquePoints(profile, outerEdge.top)
+    profile.push(new THREE.Vector2(outerRadius - outerEdgeSize - shoulder, bandHalfWidth), new THREE.Vector2(innerRadius + bevel * 0.32, bandHalfWidth), new THREE.Vector2(innerRadius, bandHalfWidth - bevel), new THREE.Vector2(innerRadius, -bandHalfWidth + bevel))
   } else if (style === "domed" || style === "hammered") {
     const steps = 22
     profile.push(new THREE.Vector2(innerRadius, -bandHalfWidth + bevel))
@@ -637,18 +942,21 @@ function buildProfile(
   } else if (style === "faceted") {
     const facetInset = wallThickness * 0.16
     const facetPeak = wallThickness * 0.14
+    const facetBaseRadius = outerRadius - facetInset
+    const facetEdge = getOuterEdgeProfile(facetBaseRadius, bandHalfWidth, outerEdgeSize, outerEdgeTreatment)
+
     profile.push(
       new THREE.Vector2(innerRadius, -bandHalfWidth + bevel),
-      new THREE.Vector2(innerRadius + bevel * 0.78, -bandHalfWidth),
-      new THREE.Vector2(outerRadius - facetInset, -bandHalfWidth),
+      new THREE.Vector2(innerRadius + bevel * 0.78, -bandHalfWidth)
+    )
+    appendUniquePoints(profile, facetEdge.bottom)
+    profile.push(
       new THREE.Vector2(outerRadius + facetPeak, -bandHalfWidth * 0.48),
       new THREE.Vector2(outerRadius + facetPeak * 1.08, 0),
-      new THREE.Vector2(outerRadius + facetPeak, bandHalfWidth * 0.48),
-      new THREE.Vector2(outerRadius - facetInset, bandHalfWidth),
-      new THREE.Vector2(innerRadius + bevel * 0.78, bandHalfWidth),
-      new THREE.Vector2(innerRadius, bandHalfWidth - bevel),
-      new THREE.Vector2(innerRadius, -bandHalfWidth + bevel)
+      new THREE.Vector2(outerRadius + facetPeak, bandHalfWidth * 0.48)
     )
+    appendUniquePoints(profile, facetEdge.top)
+    profile.push(new THREE.Vector2(innerRadius + bevel * 0.78, bandHalfWidth), new THREE.Vector2(innerRadius, bandHalfWidth - bevel), new THREE.Vector2(innerRadius, -bandHalfWidth + bevel))
   }
 
   return profile
@@ -702,59 +1010,84 @@ function createLatheGeometry(
 function createArcSectionGeometry(
   profile: THREE.Vector2[],
   style: "open",
-  _innerRadius: number,
-  _outerRadius: number,
-  _bandHalfWidth: number,
+  innerRadius: number,
+  outerRadius: number,
+  bandHalfWidth: number,
   styleSettings: StyleSettings,
   reducedDetail = false
 ) {
-  const outline = profile[profile.length - 1].equals(profile[0]) ? profile.slice(0, -1) : profile
+  const baseOutline = profile[profile.length - 1].equals(profile[0]) ? profile.slice(0, -1) : profile
   const arcSegments = reducedDetail ? 112 : 192
+  const endCapSegments = styleSettings.openGapEndRoundingMm > 0.01 ? (reducedDetail ? 6 : 10) : 0
+  const outline =
+    endCapSegments > 0
+      ? refineClosedProfile(baseOutline, Math.max(0.0024, bandHalfWidth / (reducedDetail ? 12 : 18)))
+      : baseOutline
   const gapAngleRad = (style === "open" ? styleSettings.openOpeningMm : styleSettings.diagonalOpeningMm) / getCentreRadiusMm(styleSettings.ringSize)
   const baseStartAngle = Math.PI + gapAngleRad / 2
   const baseEndAngle = baseStartAngle + (Math.PI * 2 - gapAngleRad)
-  const cols = arcSegments + 1
+  const cols = arcSegments + 1 + endCapSegments * 2
   const bodyVertexCount = outline.length * cols
   const positions: number[] = []
   const indices: number[] = []
-  const buildBoundaryLoop = (angle: number, tangentDirection: 1 | -1) => {
-    const radial = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle))
-
-    return outline.map((point) => {
-      void tangentDirection
-      return new THREE.Vector3(radial.x * point.x, point.y, radial.z * point.x)
-    })
-  }
-
-  const startLoop = buildBoundaryLoop(baseStartAngle, 1)
-  const endLoop = buildBoundaryLoop(baseEndAngle, -1)
+  const rowRoundingAngles = outline.map((point) => getOpenEndRoundingAngle(point, innerRadius, outerRadius, bandHalfWidth, styleSettings))
+  const startLoop: THREE.Vector3[] = []
+  const endLoop: THREE.Vector3[] = []
 
   for (let profileIndex = 0; profileIndex < outline.length; profileIndex += 1) {
     const point = outline[profileIndex]
+    const rowRoundingAngle = rowRoundingAngles[profileIndex]
+
+    for (let capIndex = 0; capIndex < endCapSegments; capIndex += 1) {
+      const progress = capIndex / Math.max(endCapSegments, 1)
+      const easing = Math.cos(progress * Math.PI * 0.5)
+      const angle = baseStartAngle - rowRoundingAngle * easing
+      const x = Math.cos(angle) * point.x
+      const z = Math.sin(angle) * point.x
+
+      if (capIndex === 0) {
+        startLoop.push(new THREE.Vector3(x, point.y, z))
+      }
+
+      positions.push(x, point.y, z)
+    }
 
     for (let segmentIndex = 0; segmentIndex <= arcSegments; segmentIndex += 1) {
-      if (segmentIndex === 0) {
-        const loopPoint = startLoop[profileIndex]
-        positions.push(loopPoint.x, loopPoint.y, loopPoint.z)
-        continue
-      }
-
-      if (segmentIndex === arcSegments) {
-        const loopPoint = endLoop[profileIndex]
-        positions.push(loopPoint.x, loopPoint.y, loopPoint.z)
-        continue
-      }
-
       const t = segmentIndex / arcSegments
       const angle = THREE.MathUtils.lerp(baseStartAngle, baseEndAngle, t)
-      positions.push(Math.cos(angle) * point.x, point.y, Math.sin(angle) * point.x)
+      const x = Math.cos(angle) * point.x
+      const z = Math.sin(angle) * point.x
+
+      if (endCapSegments === 0 && segmentIndex === 0) {
+        startLoop.push(new THREE.Vector3(x, point.y, z))
+      }
+
+      if (endCapSegments === 0 && segmentIndex === arcSegments) {
+        endLoop.push(new THREE.Vector3(x, point.y, z))
+      }
+
+      positions.push(x, point.y, z)
+    }
+
+    for (let capIndex = 0; capIndex < endCapSegments; capIndex += 1) {
+      const progress = (capIndex + 1) / Math.max(endCapSegments, 1)
+      const easing = Math.sin(progress * Math.PI * 0.5)
+      const angle = baseEndAngle + rowRoundingAngle * easing
+      const x = Math.cos(angle) * point.x
+      const z = Math.sin(angle) * point.x
+
+      positions.push(x, point.y, z)
+
+      if (capIndex === endCapSegments - 1) {
+        endLoop.push(new THREE.Vector3(x, point.y, z))
+      }
     }
   }
 
   for (let profileIndex = 0; profileIndex < outline.length; profileIndex += 1) {
     const nextProfileIndex = (profileIndex + 1) % outline.length
 
-    for (let segmentIndex = 0; segmentIndex < arcSegments; segmentIndex += 1) {
+    for (let segmentIndex = 0; segmentIndex < cols - 1; segmentIndex += 1) {
       const a = profileIndex * cols + segmentIndex
       const b = nextProfileIndex * cols + segmentIndex
       const c = nextProfileIndex * cols + segmentIndex + 1
@@ -798,9 +1131,9 @@ function createArcSectionGeometry(
 
 function createDiagonalArcGeometry(
   profile: THREE.Vector2[],
-  innerRadius: number,
-  outerRadius: number,
-  bandHalfWidth: number,
+  _innerRadius: number,
+  _outerRadius: number,
+  _bandHalfWidth: number,
   styleSettings: StyleSettings,
   reducedDetail = false
 ) {
@@ -811,16 +1144,21 @@ function createDiagonalArcGeometry(
   const endAngle = startAngle + (Math.PI * 2 - gapAngleRad)
   const diagonalDirectionSign = styleSettings.diagonalDirection === "leftRising" ? -1 : 1
   const tiltRadians = THREE.MathUtils.degToRad(getDiagonalCutAngleDegrees(styleSettings.diagonalCutAngle)) * diagonalDirectionSign
+  const tiltTangent = Math.tan(tiltRadians)
   const cols = arcSegments + 1
   const positions: number[] = []
   const indices: number[] = []
+  const getAngularOffset = (point: THREE.Vector2) => (point.y * tiltTangent) / Math.max(point.x, 0.0001)
 
   for (let profileIndex = 0; profileIndex < outline.length; profileIndex += 1) {
     const point = outline[profileIndex]
+    const angularOffset = getAngularOffset(point)
+    const rowStartAngle = startAngle + angularOffset
+    const rowEndAngle = endAngle + angularOffset
 
     for (let segmentIndex = 0; segmentIndex <= arcSegments; segmentIndex += 1) {
       const t = segmentIndex / arcSegments
-      const angle = THREE.MathUtils.lerp(startAngle, endAngle, t)
+      const angle = THREE.MathUtils.lerp(rowStartAngle, rowEndAngle, t)
       positions.push(Math.cos(angle) * point.x, point.y, Math.sin(angle) * point.x)
     }
   }
@@ -838,38 +1176,64 @@ function createDiagonalArcGeometry(
     }
   }
 
-  const bodyGeometry = new THREE.BufferGeometry()
-  bodyGeometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3))
-  bodyGeometry.setIndex(indices)
-  bodyGeometry.computeVertexNormals()
-  bodyGeometry.computeBoundingBox()
-  bodyGeometry.computeBoundingSphere()
+  const contourClockwise = THREE.ShapeUtils.isClockWise(outline)
+  const capContour2D = contourClockwise ? [...outline].reverse() : outline
+  const triangulated = THREE.ShapeUtils.triangulateShape(capContour2D, [])
+  const startBoundaryIndices = outline.map((_, profileIndex) => profileIndex * cols)
+  const endBoundaryIndices = outline.map((_, profileIndex) => profileIndex * cols + arcSegments)
+  const remapContourIndex = (index: number) => (contourClockwise ? outline.length - 1 - index : index)
+  const startTangent = new THREE.Vector3(-Math.sin(startAngle), 0, Math.cos(startAngle)).normalize()
+  const endTangent = new THREE.Vector3(-Math.sin(endAngle), 0, Math.cos(endAngle)).normalize()
+  const startOutwardNormal = startTangent.clone().multiplyScalar(-1)
+  const endOutwardNormal = endTangent.clone()
+  const triangleNormal = new THREE.Vector3()
+  const edgeAB = new THREE.Vector3()
+  const edgeAC = new THREE.Vector3()
+  const vertexA = new THREE.Vector3()
+  const vertexB = new THREE.Vector3()
+  const vertexC = new THREE.Vector3()
+  const setVertexFromIndex = (target: THREE.Vector3, index: number) => {
+    const positionIndex = index * 3
+    target.set(positions[positionIndex], positions[positionIndex + 1], positions[positionIndex + 2])
+  }
+  const pushCapTriangle = (a: number, b: number, c: number, outwardNormal: THREE.Vector3) => {
+    setVertexFromIndex(vertexA, a)
+    setVertexFromIndex(vertexB, b)
+    setVertexFromIndex(vertexC, c)
+    edgeAB.subVectors(vertexB, vertexA)
+    edgeAC.subVectors(vertexC, vertexA)
+    triangleNormal.crossVectors(edgeAB, edgeAC)
 
-  const createEndFaceGeometry = (angle: number, tangentDirection: 1 | -1) => {
-    const radial = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle))
-    const tangent = new THREE.Vector3(-Math.sin(angle), 0, Math.cos(angle))
-    const normal = tangent.clone().multiplyScalar(tangentDirection)
-    const centerRadius = (innerRadius + outerRadius) / 2
-    const capWidth = outerRadius - innerRadius + 0.004
-    const capHeight = bandHalfWidth * 2 + 0.004
-    const capGeometry = new THREE.PlaneGeometry(capWidth, capHeight, 1, 1)
-    const localTilt = new THREE.Matrix4().makeRotationX(tiltRadians * tangentDirection)
-    const basis = new THREE.Matrix4().makeBasis(radial, new THREE.Vector3(0, 1, 0), normal)
-    const position = radial.clone().multiplyScalar(centerRadius).add(normal.clone().multiplyScalar(0.0018))
+    if (triangleNormal.dot(outwardNormal) >= 0) {
+      indices.push(a, b, c)
+      return
+    }
 
-    capGeometry.applyMatrix4(localTilt)
-    capGeometry.applyMatrix4(basis)
-    capGeometry.translate(position.x, position.y, position.z)
-    capGeometry.computeVertexNormals()
-    capGeometry.computeBoundingBox()
-    capGeometry.computeBoundingSphere()
-    return capGeometry
+    indices.push(a, c, b)
   }
 
-  return {
-    bodyGeometry,
-    capGeometries: [createEndFaceGeometry(startAngle, -1), createEndFaceGeometry(endAngle, 1)],
-  }
+  triangulated.forEach(([a, b, c]) => {
+    pushCapTriangle(
+      startBoundaryIndices[remapContourIndex(a)],
+      startBoundaryIndices[remapContourIndex(b)],
+      startBoundaryIndices[remapContourIndex(c)],
+      startOutwardNormal
+    )
+    pushCapTriangle(
+      endBoundaryIndices[remapContourIndex(a)],
+      endBoundaryIndices[remapContourIndex(b)],
+      endBoundaryIndices[remapContourIndex(c)],
+      endOutwardNormal
+    )
+  })
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setIndex(indices)
+  geometry.computeVertexNormals()
+  geometry.computeBoundingBox()
+  geometry.computeBoundingSphere()
+  return geometry
 }
 
 function getNoiseValue(x: number, y: number, z: number) {
@@ -907,6 +1271,46 @@ function createHammeredGeometry(
   return geometry
 }
 
+function createWoodSleeveGeometry(
+  metalOuterRadius: number,
+  outerRadius: number,
+  bandHalfWidth: number,
+  styleSettings: StyleSettings,
+  reducedDetail = false
+) {
+  const yMin = -bandHalfWidth
+  const yMax = bandHalfWidth
+  const steps = reducedDetail ? 14 : 24
+  const woodThickness = outerRadius - metalOuterRadius
+  const domeHeight = woodThickness * 0.25
+  const outerEdgeSize = getOuterEdgeSizeScene(
+    styleSettings.outerEdgeTreatment === "none" ? 0 : styleSettings.outerEdgeChamferMm,
+    woodThickness * 0.92,
+    bandHalfWidth
+  )
+  const outerEdge = getOuterEdgeProfile(outerRadius, bandHalfWidth, outerEdgeSize, styleSettings.outerEdgeTreatment)
+  const innerBevel = clamp(mmToScene(0.1), 0.0008, Math.min(woodThickness * 0.32, bandHalfWidth * 0.18))
+  const profile: THREE.Vector2[] = [new THREE.Vector2(metalOuterRadius, yMin + innerBevel)]
+
+  appendUniquePoints(profile, outerEdge.bottom)
+
+  for (let i = 0; i <= steps; i += 1) {
+    const t = i / steps
+    const y = yMin + t * (yMax - yMin)
+    if (y <= outerEdge.sideStartY || y >= outerEdge.sideEndY) continue
+
+    const crown = Math.sin(t * Math.PI)
+    const x = outerRadius + crown * domeHeight
+
+    pushUniquePoint(profile, new THREE.Vector2(x, y))
+  }
+
+  appendUniquePoints(profile, outerEdge.top)
+  profile.push(new THREE.Vector2(metalOuterRadius, yMax - innerBevel), new THREE.Vector2(metalOuterRadius, yMin + innerBevel))
+
+  return createLatheGeometry(profile, "woodSleeve", styleSettings, bandHalfWidth, reducedDetail)
+}
+
 function createOuterStripGeometry(
   outerRadius: number,
   yMin: number,
@@ -927,30 +1331,97 @@ function createOuterStripGeometry(
   return createLatheGeometry(profile, style, styleSettings, Math.max(Math.abs(yMin), Math.abs(yMax)), reducedDetail)
 }
 
-function createChamferedStripGeometry(
-  outerRadius: number,
+function createInsetStripGeometry(
+  surfaceRadius: number,
+  innerRadius: number,
   yMin: number,
   yMax: number,
-  thickness: number,
-  chamferMm: number,
+  chamfer: number,
+  seamInset: number,
   style: StyleId,
   styleSettings: StyleSettings,
   reducedDetail = false
 ) {
-  const chamfer = clamp(mmToScene(chamferMm), 0, Math.min(thickness * 0.45, Math.abs(yMax - yMin) * 0.2))
-  const profile = [
-    new THREE.Vector2(outerRadius - thickness, yMin + chamfer),
-    new THREE.Vector2(outerRadius - thickness + chamfer * 0.4, yMin),
-    new THREE.Vector2(outerRadius + thickness - chamfer * 0.28, yMin),
-    new THREE.Vector2(outerRadius + thickness, yMin + chamfer),
-    new THREE.Vector2(outerRadius + thickness, yMax - chamfer),
-    new THREE.Vector2(outerRadius + thickness - chamfer * 0.28, yMax),
-    new THREE.Vector2(outerRadius - thickness + chamfer * 0.4, yMax),
-    new THREE.Vector2(outerRadius - thickness, yMax - chamfer),
-    new THREE.Vector2(outerRadius - thickness, yMin + chamfer),
-  ]
+  const insetDepth = Math.max(0.0008, surfaceRadius - innerRadius)
+  const edgeChamfer = clamp(chamfer, 0, Math.min(insetDepth * 0.72, Math.abs(yMax - yMin) * 0.2))
+  const visibleEdgeRadius = surfaceRadius - seamInset
+  const profile =
+    edgeChamfer > 0
+      ? [
+          new THREE.Vector2(innerRadius, yMin + edgeChamfer),
+          new THREE.Vector2(innerRadius + edgeChamfer * 0.32, yMin),
+          new THREE.Vector2(visibleEdgeRadius, yMin),
+          new THREE.Vector2(surfaceRadius, yMin + edgeChamfer),
+          new THREE.Vector2(surfaceRadius, yMax - edgeChamfer),
+          new THREE.Vector2(visibleEdgeRadius, yMax),
+          new THREE.Vector2(innerRadius + edgeChamfer * 0.32, yMax),
+          new THREE.Vector2(innerRadius, yMax - edgeChamfer),
+          new THREE.Vector2(innerRadius, yMin + edgeChamfer),
+        ]
+      : [
+          new THREE.Vector2(innerRadius, yMin),
+          new THREE.Vector2(visibleEdgeRadius, yMin),
+          new THREE.Vector2(surfaceRadius, yMin),
+          new THREE.Vector2(surfaceRadius, yMax),
+          new THREE.Vector2(visibleEdgeRadius, yMax),
+          new THREE.Vector2(innerRadius, yMax),
+          new THREE.Vector2(innerRadius, yMin),
+        ]
 
   return createLatheGeometry(profile, style, styleSettings, Math.max(Math.abs(yMin), Math.abs(yMax)), reducedDetail)
+}
+
+function createGrooveAccentGeometries(
+  innerRadius: number,
+  outerRadius: number,
+  bandHalfWidth: number,
+  styleSettings: StyleSettings,
+  reducedDetail = false
+) {
+  void innerRadius
+
+  const grooveLayout = getGrooveLayoutMm(
+    styleSettings.bandWidth,
+    styleSettings.groovedWidthMm,
+    styleSettings.groovedCount,
+    styleSettings.groovedEdgeSpaceMm
+  )
+  const wallThickness = mmToScene(WALL_THICKNESS_MM)
+  const outerEdgeSize = getOuterEdgeSizeScene(
+    styleSettings.outerEdgeTreatment === "none" ? 0 : styleSettings.outerEdgeChamferMm,
+    wallThickness * 0.5,
+    bandHalfWidth
+  )
+  const grooveDepthScene = Math.min(mmToScene(styleSettings.groovedDepthMm), wallThickness * 0.58)
+  const bandSceneScale = bandHalfWidth / Math.max(styleSettings.bandWidth / 2, 0.0001)
+  const toBandSceneY = (valueMm: number) => valueMm * bandSceneScale
+  const grooveShoulderScene = Math.max(0.0012, getGrooveShoulderMm(styleSettings.groovedWidthMm) * bandSceneScale)
+  const grooveBottomRadius = outerRadius - grooveDepthScene
+  const accentLift = Math.max(0.0007, grooveDepthScene * 0.08)
+  const accentHalfThickness = Math.min(Math.max(0.00045, grooveDepthScene * 0.08), 0.00135)
+  const accentRadius = grooveBottomRadius + accentLift + accentHalfThickness
+
+  return grooveLayout.intervals.flatMap((interval) => {
+    const grooveStartY = clamp(toBandSceneY(interval.startMm), -bandHalfWidth + outerEdgeSize, bandHalfWidth - outerEdgeSize)
+    const grooveEndY = clamp(toBandSceneY(interval.endMm), grooveStartY, bandHalfWidth - outerEdgeSize)
+    const grooveSection = getGrooveContourSection(grooveStartY, grooveEndY, outerRadius, grooveDepthScene, grooveShoulderScene)
+
+    if (grooveSection.bottomEndY - grooveSection.bottomStartY <= 0.0004) {
+      return []
+    }
+
+    return [
+      createOuterStripGeometry(
+        accentRadius,
+        grooveSection.bottomStartY,
+        grooveSection.bottomEndY,
+        accentHalfThickness,
+        "grooved",
+        styleSettings,
+        reducedDetail
+      ),
+    ]
+  })
 }
 
 function createSoftWindowTexture(theme: ThemeMode, reducedDetail = false) {
@@ -1106,17 +1577,18 @@ function Ring({
     [finish, technicalView]
   )
 
-  const { geometry, capGeometries, woodInlayGeometry, woodSleeveGeometry } = useMemo(() => {
+  const { geometry, grooveAccentGeometries, woodInlayGeometry, woodSleeveGeometry } = useMemo(() => {
     const innerRadius = size / 20
     const bandHalfWidth = mmToScene(width)
     const wallThickness = mmToScene(WALL_THICKNESS_MM)
-
-    const outerRadius = innerRadius + wallThickness
-    const baseProfileStyle = style === "faceted" || style === "open" || style === "diagonal" ? "simple" : style
-    const profile = buildProfile(baseProfileStyle, innerRadius, outerRadius, bandHalfWidth, wallThickness, styleSettings)
+    const metalThickness = style === "woodSleeve" ? mmToScene(0.5) : wallThickness
+    const woodThickness = style === "woodSleeve" ? mmToScene(0.5) : 0
+    const metalOuterRadius = innerRadius + metalThickness
+    const outerRadius = style === "woodSleeve" ? metalOuterRadius + woodThickness : innerRadius + wallThickness
+    const baseProfileStyle = style === "woodSleeve" ? "simple" : style === "faceted" || style === "open" || style === "diagonal" ? "simple" : style
+    const profile = buildProfile(baseProfileStyle, innerRadius, metalOuterRadius, bandHalfWidth, metalThickness, styleSettings)
     const baseGeometry = createLatheGeometry(profile, baseProfileStyle, styleSettings, bandHalfWidth, reducedDetail)
     let geometry: THREE.BufferGeometry = baseGeometry
-    let capGeometries: THREE.BufferGeometry[] = []
 
     if (style === "hammered") {
       geometry = createHammeredGeometry(
@@ -1143,52 +1615,47 @@ function Ring({
     }
 
     if (style === "diagonal") {
-      const diagonalGeometry = createDiagonalArcGeometry(profile, innerRadius, outerRadius, bandHalfWidth, styleSettings, reducedDetail)
-      geometry = diagonalGeometry.bodyGeometry
-      capGeometries = diagonalGeometry.capGeometries
+      geometry = createDiagonalArcGeometry(profile, innerRadius, outerRadius, bandHalfWidth, styleSettings, reducedDetail)
     }
-
-    const woodInlayHalfWidth = mmToScene(styleSettings.woodInlayWidthMm) / 2
-    const woodInlayInset = mmToScene(0.32)
 
     const woodInlayGeometry =
       style === "woodInlay"
-        ? (styleSettings.woodInlayChamfer
-            ? createChamferedStripGeometry(
-                outerRadius + woodInlayInset,
-                -woodInlayHalfWidth,
-                woodInlayHalfWidth,
-                mmToScene(0.26),
-                0.18,
-                style,
-                styleSettings,
-                reducedDetail
-              )
-            : createOuterStripGeometry(
-                outerRadius + woodInlayInset,
-                -woodInlayHalfWidth,
-                woodInlayHalfWidth,
-                mmToScene(0.26),
-                style,
-                styleSettings,
-                reducedDetail
-              ))
+        ? (() => {
+            const { inlayHalfWidth, recessedRadius, seamInset, insertChamfer } = getWoodInlayMeasurements(
+              styleSettings,
+              bandHalfWidth,
+              outerRadius,
+              wallThickness
+            )
+
+            return createInsetStripGeometry(
+              outerRadius,
+              recessedRadius,
+              -inlayHalfWidth,
+              inlayHalfWidth,
+              styleSettings.woodInlayChamfer ? insertChamfer : 0,
+              seamInset,
+              style,
+              styleSettings,
+              reducedDetail
+            )
+          })()
         : null
 
-    const sleeveThickness = mmToScene(WOOD_SLEEVE_THICKNESS_MM)
-    const metalLip = mmToScene(METAL_LIP_MM)
     const woodSleeveGeometry =
       style === "woodSleeve"
-        ? createOuterStripGeometry(
-            outerRadius + sleeveThickness * 0.45,
-            -bandHalfWidth + metalLip,
-            bandHalfWidth - metalLip,
-            sleeveThickness,
-            style,
+        ? createWoodSleeveGeometry(
+            metalOuterRadius,
+            outerRadius,
+            bandHalfWidth,
             styleSettings,
             reducedDetail
           )
         : null
+    const grooveAccentGeometries =
+      style === "grooved" && !technicalView
+        ? createGrooveAccentGeometries(innerRadius, outerRadius, bandHalfWidth, styleSettings, reducedDetail)
+        : []
 
     if (geometry !== baseGeometry) {
       baseGeometry.dispose()
@@ -1196,30 +1663,33 @@ function Ring({
 
     return {
       geometry,
-      capGeometries,
+      grooveAccentGeometries,
       woodInlayGeometry,
       woodSleeveGeometry,
     }
-  }, [size, width, style, styleSettings, reducedDetail])
+  }, [size, width, style, styleSettings, reducedDetail, technicalView])
 
   useEffect(() => {
     return () => {
       geometry.dispose()
-      capGeometries.forEach((item) => item.dispose())
+      grooveAccentGeometries.forEach((item) => item.dispose())
       woodInlayGeometry?.dispose()
       woodSleeveGeometry?.dispose()
       brushedTexture?.dispose()
       subtleMetalRoughnessTexture?.dispose()
     }
-  }, [geometry, capGeometries, woodInlayGeometry, woodSleeveGeometry, brushedTexture, subtleMetalRoughnessTexture])
+  }, [geometry, grooveAccentGeometries, woodInlayGeometry, woodSleeveGeometry, brushedTexture, subtleMetalRoughnessTexture])
 
   const isBrushed = finish === "brushed"
   const isFacetedCrisp = style === "faceted" && styleSettings.facetedEdgeMode === "hard"
+  const isGroovedPolished = style === "grooved" && finish === "polished"
 
   const mainColour = technicalView ? "#d8d8d8" : selectedFinish.colour
   const mainMetalness = selectedFinish.metalness ?? 0.88
   const mainRoughness = technicalView
     ? 0.32
+    : isGroovedPolished
+      ? 0.18
     : finish === "polished"
       ? 0.12
       : finish === "brushed"
@@ -1231,6 +1701,8 @@ function Ring({
             : selectedFinish.roughness
   const mainEnv = technicalView
     ? 1.7
+    : isGroovedPolished
+      ? 1.84
     : finish === "polished"
       ? 2.15
       : finish === "brushed"
@@ -1259,35 +1731,23 @@ function Ring({
         />
       </mesh>
 
-      {style === "diagonal" &&
-        capGeometries.map((item, index) => (
-          <mesh key={`diagonal-cap-${index}`} geometry={item} castShadow receiveShadow>
-            <meshPhysicalMaterial
-              color={mainColour}
-              metalness={mainMetalness}
-              roughness={mainRoughness}
-              roughnessMap={subtleMetalRoughnessTexture}
-              envMapIntensity={mainEnv}
-              clearcoat={clearcoat}
-              clearcoatRoughness={clearcoatRoughness}
-              anisotropy={isBrushed ? selectedFinish.anisotropy ?? 0 : 0}
-              anisotropyRotation={Math.PI / 2}
-              sheen={selectedFinish.sheen ?? 0}
-              sheenRoughness={0.46}
-              map={finish === "brushed" && !technicalView ? brushedTexture : null}
-            />
+      {style === "grooved" &&
+        !technicalView &&
+        grooveAccentGeometries.map((item, index) => (
+          <mesh key={`groove-accent-${index}`} geometry={item}>
+            <meshStandardMaterial color="#4b443b" metalness={0.6} roughness={0.45} envMapIntensity={0.3} />
           </mesh>
         ))}
 
       {style === "woodInlay" && woodInlayGeometry && (
         <mesh geometry={woodInlayGeometry}>
-          <meshStandardMaterial color="#7a4a26" metalness={0.04} roughness={0.58} envMapIntensity={0.75} />
+          <meshStandardMaterial color="#7a4a26" metalness={0} roughness={0.7} envMapIntensity={0.25} />
         </mesh>
       )}
 
       {style === "woodSleeve" && woodSleeveGeometry && (
         <mesh geometry={woodSleeveGeometry}>
-          <meshStandardMaterial color={styleSettings.woodSleeveWoodType === "oak" ? "#b47f54" : styleSettings.woodSleeveWoodType === "ebony" ? "#231f20" : styleSettings.woodSleeveWoodType === "maple" ? "#d9b58f" : "#8a5a32"} metalness={0.02} roughness={0.54} envMapIntensity={0.62} />
+          <meshStandardMaterial color={styleSettings.woodSleeveWoodType === "oak" ? "#b47f54" : styleSettings.woodSleeveWoodType === "ebony" ? "#231f20" : styleSettings.woodSleeveWoodType === "maple" ? "#d9b58f" : "#8a5a32"} metalness={0} roughness={0.6} envMapIntensity={0.38} />
         </mesh>
       )}
     </group>
@@ -1333,6 +1793,8 @@ function GroundedHeroRing({
   styleSettings,
   reducedDetail,
   autoRotate,
+  autoRotateResumeAt,
+  isDragging,
 }: {
   ringSize: number
   bandWidth: number
@@ -1342,40 +1804,42 @@ function GroundedHeroRing({
   styleSettings: StyleSettings
   reducedDetail: boolean
   autoRotate: boolean
+  autoRotateResumeAt: number
+  isDragging: boolean
 }) {
   const placementGroupRef = useRef<THREE.Group>(null)
-  const measuredGroupRef = useRef<THREE.Group>(null)
-  const spinGroupRef = useRef<THREE.Group>(null)
+  const turntableRef = useRef<THREE.Group>(null)
+  const posedGroupRef = useRef<THREE.Group>(null)
 
   const [groundOffset, setGroundOffset] = useState(0)
 
   const scale = reducedDetail ? 0.58 : 0.62
 
   useFrame((_, delta) => {
-    if (!spinGroupRef.current || !autoRotate) return
-    spinGroupRef.current.rotation.y += delta * 0.22
+    if (!turntableRef.current || !autoRotate || isDragging || Date.now() < autoRotateResumeAt) return
+    turntableRef.current.rotation.y += delta * AUTO_ROTATE_SPEED
   })
 
   useEffect(() => {
     const placementGroup = placementGroupRef.current
-    const measuredGroup = measuredGroupRef.current
-    const spinGroup = spinGroupRef.current
+    const turntableGroup = turntableRef.current
+    const posedGroup = posedGroupRef.current
 
-    if (!placementGroup || !measuredGroup) return
+    if (!placementGroup || !turntableGroup || !posedGroup) return
 
     const prevY = placementGroup.position.y
-    const prevSpin = spinGroup?.rotation.y ?? 0
+    const prevTurntableRotation = turntableGroup.rotation.y
 
     placementGroup.position.y = 0
-    if (spinGroup) spinGroup.rotation.y = 0
+    turntableGroup.rotation.y = 0
 
     placementGroup.updateWorldMatrix(true, true)
-    measuredGroup.updateWorldMatrix(true, true)
+    posedGroup.updateWorldMatrix(true, true)
 
-    const box = new THREE.Box3().setFromObject(measuredGroup)
+    const box = new THREE.Box3().setFromObject(posedGroup)
 
     placementGroup.position.y = prevY
-    if (spinGroup) spinGroup.rotation.y = prevSpin
+    turntableGroup.rotation.y = prevTurntableRotation
 
     const targetY = HERO_FLOOR_Y + HERO_FLOOR_CLEARANCE
     const correction = targetY - box.min.y
@@ -1395,8 +1859,8 @@ function GroundedHeroRing({
 
   return (
     <group ref={placementGroupRef} position={[0, groundOffset, 0]}>
-      <group ref={measuredGroupRef} rotation={heroRotation} scale={scale}>
-        <group ref={spinGroupRef}>
+      <group ref={turntableRef}>
+        <group ref={posedGroupRef} rotation={heroRotation} scale={scale}>
           <Ring size={ringSize} width={bandWidth} style={style} finish={finish} previewRotation={[0, 0, 0]} styleSettings={styleSettings} reducedDetail={reducedDetail} />
         </group>
       </group>
@@ -1438,7 +1902,7 @@ function DimensionOverlay({
       <div className="dimension-label front-width-label">
         {language === "en" ? "Width" : "Breite"}
         <br />
-        {bandWidth.toFixed(0)} mm
+        {formatValue(language, bandWidth)} mm
       </div>
     </div>
   )
@@ -1523,6 +1987,8 @@ function StudioScene({
   theme,
   reducedDetail,
   autoRotate,
+  autoRotateResumeAt,
+  isDragging,
 }: {
   ringSize: number
   bandWidth: number
@@ -1533,6 +1999,8 @@ function StudioScene({
   theme: ThemeMode
   reducedDetail: boolean
   autoRotate: boolean
+  autoRotateResumeAt: number
+  isDragging: boolean
 }) {
   const heroBackground = theme === "dark" ? "#16110d" : "#f4ece1"
   const heroFog = heroBackground
@@ -1585,6 +2053,14 @@ function StudioScene({
           position={[2.4, 0.25, 1.65]}
           rotation={[0, -Math.PI / 4.8, 0]}
         />
+        <Lightformer
+          form="rect"
+          intensity={theme === "dark" ? 1.05 : 0.7}
+          color={theme === "dark" ? "#18120f" : "#3f3a34"}
+          scale={[0.24, 4.9, 1]}
+          position={[-0.72, 0.34, 1.55]}
+          rotation={[0, Math.PI / 2.7, 0]}
+        />
       </Environment>
 
       <ambientLight intensity={theme === "dark" ? 0.42 : 0.48} color="#fff6ea" />
@@ -1607,6 +2083,8 @@ function StudioScene({
         styleSettings={styleSettings}
         reducedDetail={reducedDetail}
         autoRotate={autoRotate}
+        autoRotateResumeAt={autoRotateResumeAt}
+        isDragging={isDragging}
       />
 
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, HERO_FLOOR_Y, 0]} receiveShadow>
@@ -1648,6 +2126,43 @@ function Field({ label, htmlFor, children }: { label: string; htmlFor: string; c
         {label}
       </label>
       {children}
+    </div>
+  )
+}
+
+function PillChoiceGroup({
+  name,
+  value,
+  options,
+  onChange,
+  ariaLabel,
+}: {
+  name: string
+  value: string
+  options: { label: string; value: string }[]
+  onChange: (value: string) => void
+  ariaLabel: string
+}) {
+  return (
+    <div className="pill-group" role="radiogroup" aria-label={ariaLabel}>
+      {options.map((option) => {
+        const optionId = `${name}-${option.value}`
+
+        return (
+          <label key={option.value} className="pill-option" htmlFor={optionId}>
+            <input
+              id={optionId}
+              className="pill-input"
+              type="radio"
+              name={name}
+              value={option.value}
+              checked={value === option.value}
+              onChange={() => onChange(option.value)}
+            />
+            <span className="pill-chip">{option.label}</span>
+          </label>
+        )
+      })}
     </div>
   )
 }
@@ -1699,6 +2214,7 @@ function TechnicalViews({ children, label }: { children: ReactNode; label: strin
 
 function App() {
   const [initialConfig] = useState<AppConfig>(() => getInitialConfig())
+  const visitedStylesRef = useRef<Set<StyleId>>(new Set([initialConfig.style]))
   const [accessGranted, setAccessGranted] = useState<boolean>(() => {
     if (typeof window === "undefined") return false
     return window.localStorage.getItem(ACCESS_KEY) === "granted"
@@ -1733,12 +2249,15 @@ function App() {
   const [diagonalCutAngle, setDiagonalCutAngle] = useState<DiagonalCutAngle>(initialConfig.diagonalCutAngle)
   const [woodSleeveWoodType, setWoodSleeveWoodType] = useState<WoodType>(initialConfig.woodSleeveWoodType)
   const [woodInlayWoodType, setWoodInlayWoodType] = useState<WoodType>(initialConfig.woodInlayWoodType)
-  const [woodInlayWidthMm, setWoodInlayWidthMm] = useState(initialConfig.woodInlayWidthMm)
+  const [woodInlayEdgeSpaceMm, setWoodInlayEdgeSpaceMm] = useState(initialConfig.woodInlayEdgeSpaceMm)
   const [woodInlayChamfer, setWoodInlayChamfer] = useState(initialConfig.woodInlayChamfer)
+  const [outerEdgeTreatment, setOuterEdgeTreatment] = useState<OuterEdgeTreatment>(initialConfig.outerEdgeTreatment)
   const [outerEdgeChamferMm, setOuterEdgeChamferMm] = useState(initialConfig.outerEdgeChamferMm)
   const [statusMessage, setStatusMessage] = useState("")
   const [submitState, setSubmitState] = useState<SubmitState>("idle")
   const [autoRotate, setAutoRotate] = useState(true)
+  const [isOrbitDragging, setIsOrbitDragging] = useState(false)
+  const [autoRotateResumeAt, setAutoRotateResumeAt] = useState(0)
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null)
   const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => {
     if (typeof window === "undefined") return "desktop"
@@ -1770,6 +2289,12 @@ function App() {
     size: language === "en" ? "Size" : "Größe",
     diameter: language === "en" ? "Diameter" : "Durchmesser",
     width: language === "en" ? "Band Width" : "Breite",
+    edgeSpacing: language === "en" ? "Space to edge" : "Abstand zur Kante",
+    derivedInlayWidth: language === "en" ? "Derived inlay width" : "Abgeleitete Einlagenbreite",
+    outerEdge: language === "en" ? "Outer edge" : "Außenkante",
+    outerEdgeSize: language === "en" ? "Outer edge size" : "Außenkantengröße",
+    rounded: language === "en" ? "Rounded" : "Rund",
+    none: language === "en" ? "None" : "Keine",
     style: language === "en" ? "Style" : "Stil",
     finish: language === "en" ? "Surface Finish" : "Oberfläche",
     identitySection: language === "en" ? "Identity" : "Identität",
@@ -1807,7 +2332,10 @@ function App() {
     chamferOn: language === "en" ? "Yes" : "Ja",
     chamferOff: language === "en" ? "No" : "Nein",
     hammeredHelper: language === "en" ? "Texture applied procedurally. Fine surface details scale with ring size." : "Textur wird prozedural angewendet. Feine Oberflächendetails skalieren mit der Ringgröße.",
-    inlayHelper: language === "en" ? "Metal edge: fixed 1.0 mm each side." : "Metallrand: fest 1,0 mm pro Seite.",
+    inlayHelper:
+      language === "en"
+        ? "Wood width is derived from the band width minus twice the edge spacing."
+        : "Die Holzbreite ergibt sich aus der Bandbreite minus zweimal dem Kantenabstand.",
     topView: language === "en" ? "Top orthographic" : "Orthografisch oben",
     frontView: language === "en" ? "Front orthographic" : "Orthografisch vorne",
     technicalTitle: language === "en" ? "Technical views" : "Technische Ansichten",
@@ -1879,11 +2407,30 @@ function App() {
   const circumference = getCircumferenceMm(ringSize)
   const isTabletLayout = layoutMode === "tablet"
   const isMobileLayout = layoutMode === "mobile" || layoutMode === "compactMobile"
+  const renderDelayMs =
+    layoutMode === "mobile" || layoutMode === "compactMobile"
+      ? 140
+      : layoutMode === "tablet"
+      ? 90
+      : 0
   const isLandscapeMobile =
     typeof window !== "undefined" &&
     isMobileLayout &&
     window.matchMedia("(orientation: landscape)").matches
   const reducedDetail = isTabletLayout || isMobileLayout
+  const woodInlayWidthMm = getWoodInlayWidthMm(bandWidth, woodInlayEdgeSpaceMm)
+  const renderRingSize = useDebouncedValue(ringSize, renderDelayMs)
+  const renderBandWidth = useDebouncedValue(bandWidth, renderDelayMs)
+  const renderGroovedWidthMm = useDebouncedValue(groovedWidthMm, renderDelayMs)
+  const renderGroovedDepthMm = useDebouncedValue(groovedDepthMm, renderDelayMs)
+  const renderGroovedCount = useDebouncedValue(groovedCount, renderDelayMs)
+  const renderGroovedEdgeSpaceMm = useDebouncedValue(groovedEdgeSpaceMm, renderDelayMs)
+  const renderFacetedCount = useDebouncedValue(facetedCount, renderDelayMs)
+  const renderOpenOpeningMm = useDebouncedValue(openOpeningMm, renderDelayMs)
+  const renderOpenGapEndRoundingMm = useDebouncedValue(openGapEndRoundingMm, renderDelayMs)
+  const renderDiagonalOpeningMm = useDebouncedValue(diagonalOpeningMm, renderDelayMs)
+  const renderWoodInlayEdgeSpaceMm = useDebouncedValue(woodInlayEdgeSpaceMm, renderDelayMs)
+  const renderOuterEdgeChamferMm = useDebouncedValue(outerEdgeChamferMm, renderDelayMs)
   const heroCamera = layoutMode === "ultraWide"
     ? { position: [0, 0.03, 5.5] as [number, number, number], fov: 19 }
     : { position: [0, 0.03, 5.5] as [number, number, number], fov: 20 }
@@ -1913,8 +2460,9 @@ function App() {
       diagonalCutAngle,
       woodSleeveWoodType,
       woodInlayWoodType,
-      woodInlayWidthMm,
+      woodInlayEdgeSpaceMm,
       woodInlayChamfer,
+      outerEdgeTreatment,
       outerEdgeChamferMm,
     })
 
@@ -1927,7 +2475,8 @@ function App() {
       validated.openOpeningMm !== openOpeningMm ||
       validated.openGapEndRoundingMm !== openGapEndRoundingMm ||
       validated.diagonalOpeningMm !== diagonalOpeningMm ||
-      validated.woodInlayWidthMm !== woodInlayWidthMm ||
+      validated.woodInlayEdgeSpaceMm !== woodInlayEdgeSpaceMm ||
+      validated.outerEdgeTreatment !== outerEdgeTreatment ||
       validated.outerEdgeChamferMm !== outerEdgeChamferMm
 
     if (!hasChanges) return
@@ -1941,7 +2490,8 @@ function App() {
       if (validated.openOpeningMm !== openOpeningMm) setOpenOpeningMm(validated.openOpeningMm)
       if (validated.openGapEndRoundingMm !== openGapEndRoundingMm) setOpenGapEndRoundingMm(validated.openGapEndRoundingMm)
       if (validated.diagonalOpeningMm !== diagonalOpeningMm) setDiagonalOpeningMm(validated.diagonalOpeningMm)
-      if (validated.woodInlayWidthMm !== woodInlayWidthMm) setWoodInlayWidthMm(validated.woodInlayWidthMm)
+      if (validated.woodInlayEdgeSpaceMm !== woodInlayEdgeSpaceMm) setWoodInlayEdgeSpaceMm(validated.woodInlayEdgeSpaceMm)
+      if (validated.outerEdgeTreatment !== outerEdgeTreatment) setOuterEdgeTreatment(validated.outerEdgeTreatment)
       if (validated.outerEdgeChamferMm !== outerEdgeChamferMm) setOuterEdgeChamferMm(validated.outerEdgeChamferMm)
     })
   }, [
@@ -1965,60 +2515,74 @@ function App() {
     diagonalCutAngle,
     woodSleeveWoodType,
     woodInlayWoodType,
-    woodInlayWidthMm,
+    woodInlayEdgeSpaceMm,
     woodInlayChamfer,
+    outerEdgeTreatment,
     outerEdgeChamferMm,
   ])
 
-  const styleSettings = useMemo<StyleSettings>(
+  const renderStyleSettings = useMemo<StyleSettings>(
     () => ({
-      ringSize,
-      bandWidth,
-      groovedWidthMm,
-      groovedDepthMm,
-      groovedCount,
-      groovedEdgeSpaceMm,
-      facetedCount,
+      ringSize: renderRingSize,
+      bandWidth: renderBandWidth,
+      groovedWidthMm: renderGroovedWidthMm,
+      groovedDepthMm: renderGroovedDepthMm,
+      groovedCount: renderGroovedCount,
+      groovedEdgeSpaceMm: renderGroovedEdgeSpaceMm,
+      facetedCount: renderFacetedCount,
       facetedEdgeMode,
-      openOpeningMm,
-      openGapEndRoundingMm,
-      diagonalOpeningMm,
+      openOpeningMm: renderOpenOpeningMm,
+      openGapEndRoundingMm: renderOpenGapEndRoundingMm,
+      diagonalOpeningMm: renderDiagonalOpeningMm,
       diagonalDirection,
       diagonalEdgeFinish,
       diagonalCutAngle,
       woodSleeveWoodType,
       woodInlayWoodType,
-      woodInlayWidthMm,
+      woodInlayEdgeSpaceMm: renderWoodInlayEdgeSpaceMm,
       woodInlayChamfer,
-      outerEdgeChamferMm,
+      outerEdgeTreatment,
+      outerEdgeChamferMm: renderOuterEdgeChamferMm,
     }),
     [
-      ringSize,
-      bandWidth,
-      groovedWidthMm,
-      groovedDepthMm,
-      groovedCount,
-      groovedEdgeSpaceMm,
-      facetedCount,
+      renderRingSize,
+      renderBandWidth,
+      renderGroovedWidthMm,
+      renderGroovedDepthMm,
+      renderGroovedCount,
+      renderGroovedEdgeSpaceMm,
+      renderFacetedCount,
       facetedEdgeMode,
-      openOpeningMm,
-      openGapEndRoundingMm,
-      diagonalOpeningMm,
+      renderOpenOpeningMm,
+      renderOpenGapEndRoundingMm,
+      renderDiagonalOpeningMm,
       diagonalDirection,
       diagonalEdgeFinish,
       diagonalCutAngle,
       woodSleeveWoodType,
       woodInlayWoodType,
-      woodInlayWidthMm,
+      renderWoodInlayEdgeSpaceMm,
       woodInlayChamfer,
-      outerEdgeChamferMm,
+      outerEdgeTreatment,
+      renderOuterEdgeChamferMm,
     ]
   )
 
   const maxGrooveCount = getMaxGrooveCount(bandWidth, groovedWidthMm, groovedEdgeSpaceMm)
   const facetedArcLengthMm = circumference / facetedCount
   const diagonalCutAngleDegrees = getDiagonalCutAngleDegrees(diagonalCutAngle)
-  const woodInlayMaxWidthMm = Math.max(2, bandWidth - WOOD_INLAY_EDGE_MM * 2)
+  const woodInlayMaxEdgeSpaceMm = getWoodInlayMaxEdgeSpaceMm(bandWidth)
+
+  function getOuterEdgeTreatmentLabel(treatment: OuterEdgeTreatment) {
+    if (treatment === "rounded") return t.rounded
+    if (treatment === "none") return t.none
+    return t.chamfer
+  }
+
+  function getOuterEdgeSummaryLabel(treatment: OuterEdgeTreatment, sizeMm: number) {
+    if (treatment === "none") return `${t.outerEdge}: ${t.none}`
+    return `${t.outerEdge}: ${getOuterEdgeTreatmentLabel(treatment)} / ${formatValue(language, sizeMm)} mm`
+  }
 
   function getWoodTypeLabel(woodType: WoodType) {
     if (woodType === "oak") return language === "en" ? "Oak" : "Eiche"
@@ -2030,19 +2594,26 @@ function App() {
   const activeStyleValues = (() => {
     switch (style) {
       case "grooved":
-        return { groovedWidthMm, groovedDepthMm, groovedCount, groovedEdgeSpaceMm, outerEdgeChamferMm }
+        return { groovedWidthMm, groovedDepthMm, groovedCount, groovedEdgeSpaceMm, outerEdgeTreatment, outerEdgeChamferMm }
       case "faceted":
-        return { facetedCount, facetedArcLengthMm: Number(facetedArcLengthMm.toFixed(1)), facetedEdgeMode, outerEdgeChamferMm }
+        return { facetedCount, facetedArcLengthMm: Number(facetedArcLengthMm.toFixed(1)), facetedEdgeMode, outerEdgeTreatment, outerEdgeChamferMm }
       case "open":
-        return { openOpeningMm, openGapEndRoundingMm, outerEdgeChamferMm }
+        return { openOpeningMm, openGapEndRoundingMm, outerEdgeTreatment, outerEdgeChamferMm }
       case "diagonal":
-        return { diagonalOpeningMm, diagonalDirection, diagonalEdgeFinish, diagonalCutAngleDegrees, outerEdgeChamferMm }
+        return { diagonalOpeningMm, diagonalDirection, diagonalEdgeFinish, diagonalCutAngleDegrees, outerEdgeTreatment, outerEdgeChamferMm }
       case "woodSleeve":
-        return { woodSleeveWoodType, woodSleeveThicknessMm: WOOD_SLEEVE_THICKNESS_MM, outerEdgeChamferMm }
+        return { woodSleeveWoodType, woodSleeveThicknessMm: WOOD_SLEEVE_THICKNESS_MM, outerEdgeTreatment, outerEdgeChamferMm }
       case "woodInlay":
-        return { woodInlayWoodType, woodInlayWidthMm, woodInlayMetalEdgeMm: WOOD_INLAY_EDGE_MM, woodInlayChamfer, outerEdgeChamferMm }
+        return {
+          woodInlayWoodType,
+          woodInlayEdgeSpaceMm,
+          woodInlayWidthMm,
+          woodInlayChamfer,
+          outerEdgeTreatment,
+          outerEdgeChamferMm,
+        }
       default:
-        return { outerEdgeChamferMm }
+        return { outerEdgeTreatment, outerEdgeChamferMm }
     }
   })()
 
@@ -2092,8 +2663,8 @@ function App() {
       : style === "woodInlay"
       ? [
           getWoodTypeLabel(woodInlayWoodType),
+          `${formatValue(language, woodInlayEdgeSpaceMm)} mm ${language === "en" ? "space to edge" : "Abstand zur Kante"}`,
           `${formatValue(language, woodInlayWidthMm)} mm ${language === "en" ? "inlay width" : "Einlagenbreite"}`,
-          `${formatValue(language, WOOD_INLAY_EDGE_MM)} mm ${language === "en" ? "metal edge" : "Metallrand"}`,
           woodInlayChamfer ? t.chamferOn : t.chamferOff,
         ]
       : []
@@ -2108,7 +2679,39 @@ function App() {
     ...styleSummaryParts.filter(Boolean),
   ].join(" · ")
 
+  function switchStyle(nextStyle: StyleId) {
+    setStyle(nextStyle)
+
+    if (visitedStylesRef.current.has(nextStyle)) return
+
+    visitedStylesRef.current.add(nextStyle)
+
+    const preset = STYLE_DEFAULTS[nextStyle]
+
+    if (typeof preset.bandWidth === "number") setBandWidth(preset.bandWidth)
+    if (preset.finish) setFinish(preset.finish)
+    if (typeof preset.groovedWidthMm === "number") setGroovedWidthMm(preset.groovedWidthMm)
+    if (typeof preset.groovedDepthMm === "number") setGroovedDepthMm(preset.groovedDepthMm)
+    if (typeof preset.groovedCount === "number") setGroovedCount(preset.groovedCount)
+    if (typeof preset.groovedEdgeSpaceMm === "number") setGroovedEdgeSpaceMm(preset.groovedEdgeSpaceMm)
+    if (typeof preset.facetedCount === "number") setFacetedCount(preset.facetedCount)
+    if (preset.facetedEdgeMode) setFacetedEdgeMode(preset.facetedEdgeMode)
+    if (typeof preset.openOpeningMm === "number") setOpenOpeningMm(preset.openOpeningMm)
+    if (typeof preset.openGapEndRoundingMm === "number") setOpenGapEndRoundingMm(preset.openGapEndRoundingMm)
+    if (typeof preset.diagonalOpeningMm === "number") setDiagonalOpeningMm(preset.diagonalOpeningMm)
+    if (preset.diagonalDirection) setDiagonalDirection(preset.diagonalDirection)
+    if (preset.diagonalEdgeFinish) setDiagonalEdgeFinish(preset.diagonalEdgeFinish)
+    if (preset.diagonalCutAngle) setDiagonalCutAngle(preset.diagonalCutAngle)
+    if (preset.woodSleeveWoodType) setWoodSleeveWoodType(preset.woodSleeveWoodType)
+    if (preset.woodInlayWoodType) setWoodInlayWoodType(preset.woodInlayWoodType)
+    if (typeof preset.woodInlayEdgeSpaceMm === "number") setWoodInlayEdgeSpaceMm(preset.woodInlayEdgeSpaceMm)
+    if ("woodInlayChamfer" in preset && typeof preset.woodInlayChamfer === "boolean") setWoodInlayChamfer(preset.woodInlayChamfer)
+    if (preset.outerEdgeTreatment) setOuterEdgeTreatment(preset.outerEdgeTreatment)
+    if (typeof preset.outerEdgeChamferMm === "number") setOuterEdgeChamferMm(preset.outerEdgeChamferMm)
+  }
+
   function resetConfig() {
+    visitedStylesRef.current = new Set([DEFAULT_CONFIG.style])
     setRingSize(DEFAULT_CONFIG.ringSize)
     setBandWidth(DEFAULT_CONFIG.bandWidth)
     setStyle(DEFAULT_CONFIG.style)
@@ -2127,8 +2730,9 @@ function App() {
     setDiagonalCutAngle(DEFAULT_CONFIG.diagonalCutAngle)
     setWoodSleeveWoodType(DEFAULT_CONFIG.woodSleeveWoodType)
     setWoodInlayWoodType(DEFAULT_CONFIG.woodInlayWoodType)
-    setWoodInlayWidthMm(DEFAULT_CONFIG.woodInlayWidthMm)
+    setWoodInlayEdgeSpaceMm(DEFAULT_CONFIG.woodInlayEdgeSpaceMm)
     setWoodInlayChamfer(DEFAULT_CONFIG.woodInlayChamfer)
+    setOuterEdgeTreatment(DEFAULT_CONFIG.outerEdgeTreatment)
     setOuterEdgeChamferMm(DEFAULT_CONFIG.outerEdgeChamferMm)
     setName(getDefaultName(language))
     setStatusMessage(language === "en" ? "Configuration reset." : "Konfiguration zurückgesetzt.")
@@ -2252,7 +2856,7 @@ function App() {
       <button
         id={languageButtonId}
         type="button"
-        className="topbar-toggle language-toggle"
+        className="topbar-toggle language-toggle topbar-language-toggle"
         onClick={() => setLanguage(language === "en" ? "de" : "en")}
         aria-label={language === "en" ? "Switch language to German" : "Sprache auf Englisch wechseln"}
       >
@@ -2261,8 +2865,20 @@ function App() {
 
       <ControlsPanel>
         <div className="sidebar-header">
-          <p className="eyebrow">{language === "en" ? "Custom stainless steel ring" : "Individueller Edelstahlring"}</p>
-          <h1>{t.title}</h1>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px" }}>
+            <div style={{ flex: "1 1 auto" }}>
+              <p className="eyebrow">{language === "en" ? "Custom stainless steel ring" : "Individueller Edelstahlring"}</p>
+              <h1>{t.title}</h1>
+            </div>
+            <button
+              type="button"
+              className="language-toggle mobile-language-toggle"
+              onClick={() => setLanguage(language === "en" ? "de" : "en")}
+              aria-label={language === "en" ? "Switch language to German" : "Sprache auf Englisch wechseln"}
+            >
+              {language === "en" ? "DE" : "EN"}
+            </button>
+          </div>
           <p className="subtitle">{t.subtitle}</p>
         </div>
 
@@ -2302,7 +2918,16 @@ function App() {
             </Field>
 
             <Field label={`${t.width}: ${formatValue(language, bandWidth)} mm`} htmlFor={widthRangeId}>
-              <input id={widthRangeId} className="range-input" type="range" min="1" max="10" step="0.1" value={bandWidth} onChange={(event) => setBandWidth(Number(event.target.value))} />
+              <input
+                id={widthRangeId}
+                className="range-input"
+                type="range"
+                min={String(BAND_WIDTH_MIN_MM)}
+                max={String(BAND_WIDTH_MAX_MM)}
+                step="0.1"
+                value={bandWidth}
+                onChange={(event) => setBandWidth(Number(event.target.value))}
+              />
             </Field>
           </PanelSection>
 
@@ -2315,7 +2940,7 @@ function App() {
 
                 return (
                   <label key={item.id} className="option-label" htmlFor={optionId}>
-                    <input id={optionId} className="option-input" type="radio" name={styleGroupName} value={item.id} checked={style === item.id} onChange={() => setStyle(item.id)} />
+                    <input id={optionId} className="option-input" type="radio" name={styleGroupName} value={item.id} checked={style === item.id} onChange={() => switchStyle(item.id)} />
                     <span className="option-card option-card-style">
                       <span className={`style-preview style-preview-${item.id}`} aria-hidden="true" />
                       <strong>{language === "en" ? item.en : item.de}</strong>
@@ -2332,6 +2957,42 @@ function App() {
           <PanelSection title={t.styleOptionsSection}>
             <div className="option-group">
               {(style === "simple" || style === "grooved" || style === "faceted" || style === "open" || style === "diagonal" || style === "woodSleeve" || style === "woodInlay") && (
+                <>
+                  <Field
+                    label={getOuterEdgeSummaryLabel(outerEdgeTreatment, outerEdgeChamferMm)}
+                    htmlFor={`${styleOptionsGroupId}-outer-edge-treatment-rounded`}
+                  >
+                    <PillChoiceGroup
+                      name={`${styleOptionsGroupId}-outer-edge-treatment`}
+                      value={outerEdgeTreatment}
+                      ariaLabel={t.outerEdge}
+                      onChange={(value) => setOuterEdgeTreatment(value as OuterEdgeTreatment)}
+                      options={[
+                        { label: t.rounded, value: "rounded" },
+                        { label: t.chamfer, value: "chamfer" },
+                        { label: t.none, value: "none" },
+                      ]}
+                    />
+                  </Field>
+
+                  {outerEdgeTreatment !== "none" && (
+                    <Field label={t.outerEdgeSize} htmlFor={`${styleOptionsGroupId}-outer-edge-size-0.3`}>
+                      <PillChoiceGroup
+                        name={`${styleOptionsGroupId}-outer-edge-size`}
+                        value={String(outerEdgeChamferMm)}
+                        ariaLabel={t.outerEdgeSize}
+                        onChange={(value) => setOuterEdgeChamferMm(Number(value))}
+                        options={OUTER_EDGE_SIZE_OPTIONS.map((sizeOption) => ({
+                          label: `${sizeOption === 1 ? "1.0" : formatValue(language, sizeOption)} mm`,
+                          value: String(sizeOption),
+                        }))}
+                      />
+                    </Field>
+                  )}
+                </>
+              )}
+
+              {false && (style === "simple" || style === "grooved" || style === "faceted" || style === "open" || style === "diagonal" || style === "woodSleeve" || style === "woodInlay") && (
                 <Field
                   label={`${language === "en" ? "Outer edge chamfer" : "Außenschrägung"}: ${outerEdgeChamferMm === 0 ? (language === "en" ? "none" : "keine") : `${formatValue(language, outerEdgeChamferMm)} mm`}`}
                   htmlFor={`${styleOptionsGroupId}-outer-edge-chamfer`}
@@ -2345,6 +3006,7 @@ function App() {
                     <option value="0">{language === "en" ? "None" : "Keine"}</option>
                     <option value="0.3">0.3 mm</option>
                     <option value="0.6">0.6 mm</option>
+                    <option value="1">1.0 mm</option>
                   </select>
                 </Field>
               )}
@@ -2547,18 +3209,19 @@ function App() {
                       <option value="maple">{language === "en" ? "Maple" : "Ahorn"}</option>
                     </select>
                   </Field>
-                  <Field label={`${t.inlayWidth}: ${formatValue(language, woodInlayWidthMm)} mm`} htmlFor={`${styleOptionsGroupId}-wood-inlay-width`}>
+                  <Field label={`${t.edgeSpacing}: ${formatValue(language, woodInlayEdgeSpaceMm)} mm`} htmlFor={`${styleOptionsGroupId}-wood-inlay-edge-space`}>
                     <input
-                      id={`${styleOptionsGroupId}-wood-inlay-width`}
+                      id={`${styleOptionsGroupId}-wood-inlay-edge-space`}
                       className="range-input"
                       type="range"
-                      min="2"
-                      max={woodInlayMaxWidthMm}
+                      min={String(WOOD_INLAY_MIN_EDGE_SPACE_MM)}
+                      max={woodInlayMaxEdgeSpaceMm}
                       step="0.1"
-                      value={Math.min(woodInlayWidthMm, woodInlayMaxWidthMm)}
-                      onChange={(event) => setWoodInlayWidthMm(Number(event.target.value))}
+                      value={Math.min(woodInlayEdgeSpaceMm, woodInlayMaxEdgeSpaceMm)}
+                      onChange={(event) => setWoodInlayEdgeSpaceMm(Number(event.target.value))}
                     />
                   </Field>
+                  <p className="field-hint">{`${t.derivedInlayWidth}: ${formatValue(language, woodInlayWidthMm)} mm`}</p>
                   <Field label={t.chamfer} htmlFor={`${styleOptionsGroupId}-wood-inlay-chamfer`}>
                     <select
                       id={`${styleOptionsGroupId}-wood-inlay-chamfer`}
@@ -2635,7 +3298,7 @@ function App() {
                 camera={heroCamera}
                 shadows
                 dpr={heroDpr}
-                frameloop="always"
+                frameloop={autoRotate ? "always" : "demand"}
                 gl={{
                   antialias: true,
                   alpha: false,
@@ -2647,14 +3310,18 @@ function App() {
                   gl.outputColorSpace = THREE.SRGBColorSpace
                 }}
               >
-                <StudioScene ringSize={ringSize} bandWidth={bandWidth} style={style} finish={finish} heroRotation={heroRotation} styleSettings={styleSettings} theme={theme} reducedDetail={reducedDetail} autoRotate={autoRotate} />
+                <StudioScene ringSize={renderRingSize} bandWidth={renderBandWidth} style={style} finish={finish} heroRotation={heroRotation} styleSettings={renderStyleSettings} theme={theme} reducedDetail={reducedDetail} autoRotate={autoRotate} autoRotateResumeAt={autoRotateResumeAt} isDragging={isOrbitDragging} />
                 <OrbitControls
                   key="orbit-controls"
                   enableDamping
                   dampingFactor={0.06}
                   enablePan={false}
                   autoRotate={false}
-                  onStart={() => setAutoRotate(false)}
+                  onStart={() => setIsOrbitDragging(true)}
+                  onEnd={() => {
+                    setIsOrbitDragging(false)
+                    setAutoRotateResumeAt(Date.now() + AUTO_ROTATE_RESUME_DELAY_MS)
+                  }}
                   target={heroTarget}
                   minDistance={isMobileLayout ? 4.6 : 5.0}
                   maxDistance={isMobileLayout ? 7.2 : 8.0}
@@ -2662,14 +3329,24 @@ function App() {
                   maxPolarAngle={Math.PI / 1.95}
                 />
               </Canvas>
-              <button
-                type="button"
-                className={`hero-rotate-button${autoRotate ? "" : " is-inactive"}`}
-                onClick={() => setAutoRotate((current) => !current)}
-                aria-label={language === "en" ? "Toggle rotation" : "Rotation umschalten"}
-              >
-                <RotateCcw aria-hidden="true" className="hero-rotate-icon ui-icon" strokeWidth={1.9} />
-              </button>
+              <div className="hero-button-stack">
+                <button
+                  type="button"
+                  className={`hero-control-button hero-rotate-button${autoRotate ? "" : " is-inactive"}`}
+                  onClick={() => setAutoRotate((current) => !current)}
+                  aria-label={language === "en" ? "Toggle rotation" : "Rotation umschalten"}
+                >
+                  <RotateCcw aria-hidden="true" className="hero-rotate-icon ui-icon" strokeWidth={1.9} />
+                </button>
+                <button
+                  type="button"
+                  className="hero-control-button hero-theme-button"
+                  onClick={() => setTheme((current) => (current === "light" ? "dark" : "light"))}
+                  aria-label={language === "en" ? "Toggle dark mode" : "Dunkelmodus umschalten"}
+                >
+                  {theme === "light" ? <MoonStar aria-hidden="true" className="topbar-icon ui-icon" strokeWidth={1.9} /> : <SunMedium aria-hidden="true" className="topbar-icon ui-icon" strokeWidth={1.9} />}
+                </button>
+              </div>
             </div>
           </section>
         </HeroSection>
@@ -2681,8 +3358,8 @@ function App() {
           </div>
 
           <section className="ortho-grid">
-            <OrthoView title={t.topView} kind="top" cameraPosition={[0, 3, 0]} cameraUp={[0, 0, -1]} ringSize={ringSize} bandWidth={bandWidth} style={style} finish={finish} language={language} styleSettings={styleSettings} theme={theme} reducedDetail={reducedDetail} />
-            <OrthoView title={t.frontView} kind="front" cameraPosition={[0, 0, 3]} cameraUp={[0, 1, 0]} ringSize={ringSize} bandWidth={bandWidth} style={style} finish={finish} language={language} styleSettings={styleSettings} theme={theme} reducedDetail={reducedDetail} className="ortho-card-front" />
+            <OrthoView title={t.topView} kind="top" cameraPosition={[0, 3, 0]} cameraUp={[0, 0, -1]} ringSize={renderRingSize} bandWidth={renderBandWidth} style={style} finish={finish} language={language} styleSettings={renderStyleSettings} theme={theme} reducedDetail={reducedDetail} />
+            <OrthoView title={t.frontView} kind="front" cameraPosition={[0, 0, 3]} cameraUp={[0, 1, 0]} ringSize={renderRingSize} bandWidth={renderBandWidth} style={style} finish={finish} language={language} styleSettings={renderStyleSettings} theme={theme} reducedDetail={reducedDetail} className="ortho-card-front" />
           </section>
         </TechnicalViews>
       </main>
