@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react"
 import type { ReactNode } from "react"
-import { MoonStar, RotateCcw, SendHorizontal, Share2, SunMedium } from "lucide-react"
+import { Home, MoonStar, RotateCcw, SendHorizontal, Share2, SunMedium } from "lucide-react"
 import * as THREE from "three"
 import { Canvas, useFrame, useThree } from "@react-three/fiber"
 import {
@@ -60,11 +60,13 @@ type FinishOption = {
   de: string
   colour: string
   roughness: number
-  metalness?: number
-  envMapIntensity?: number
-  clearcoat?: number
+  metalness: number
+  envMapIntensity: number
+  clearcoat: number
+  clearcoatRoughness: number
   anisotropy?: number
-  sheen?: number
+  anisotropyRotation?: number
+  bumpScale?: number
 }
 
 type StoredConfig = {
@@ -169,7 +171,7 @@ const ACCESS_CODE = "4827"
 const THEME_KEY = "ring-config-theme"
 const FORMSPREE_ENDPOINT = "https://formspree.io/f/mzdywkpb"
 const MM_TO_SCENE = 0.045
-const BAND_WIDTH_MIN_MM = 1.0
+const BAND_WIDTH_MIN_MM = 2.0
 const BAND_WIDTH_MAX_MM = 10.0
 const WALL_THICKNESS_MM = 2.0
 const WOOD_SLEEVE_THICKNESS_MM = 0.5
@@ -276,11 +278,11 @@ const styles: StyleOption[] = [
 ]
 
 const finishes: FinishOption[] = [
-  { id: "normal", en: "Normal", de: "Normal", colour: "#e8e3d8", roughness: 0.16, metalness: 1, envMapIntensity: 2.2, clearcoat: 1, sheen: 0.06 },
-  { id: "matte", en: "Matte", de: "Matt", colour: "#cfd1d2", roughness: 0.58, metalness: 0.72, envMapIntensity: 0.92, clearcoat: 0.32, sheen: 0.05 },
-  { id: "polished", en: "Polished", de: "Poliert", colour: "#fffaf0", roughness: 0.07, metalness: 1, envMapIntensity: 2.8, clearcoat: 1, sheen: 0 },
-  { id: "brushed", en: "Brushed", de: "Gebürstet", colour: "#d5d7d9", roughness: 0.17, envMapIntensity: 1.95, clearcoat: 0.88, anisotropy: 0.72, sheen: 0.12 },
-  { id: "oxidised", en: "Oxidised", de: "Oxidiert", colour: "#617283", roughness: 0.3, metalness: 0.92, envMapIntensity: 1.28, clearcoat: 0.55, sheen: 0.05 },
+  { id: "normal", en: "Normal", de: "Normal", colour: "#d8d6d1", roughness: 0.28, metalness: 1, envMapIntensity: 1.72, clearcoat: 0.35, clearcoatRoughness: 0.22 },
+  { id: "matte", en: "Matte", de: "Matt", colour: "#cfd2d2", roughness: 0.76, metalness: 1, envMapIntensity: 1.02, clearcoat: 0.12, clearcoatRoughness: 0.6 },
+  { id: "polished", en: "Polished", de: "Poliert", colour: "#f4f1ea", roughness: 0.065, metalness: 1, envMapIntensity: 2.45, clearcoat: 0.9, clearcoatRoughness: 0.06 },
+  { id: "brushed", en: "Brushed", de: "Gebürstet", colour: "#d6d8d8", roughness: 0.38, metalness: 1, envMapIntensity: 1.58, clearcoat: 0.35, clearcoatRoughness: 0.32, anisotropy: 0.85, anisotropyRotation: Math.PI / 2, bumpScale: 0.008 },
+  { id: "oxidised", en: "Oxidised", de: "Oxidiert", colour: "#566675", roughness: 0.52, metalness: 0.95, envMapIntensity: 1.18, clearcoat: 0.28, clearcoatRoughness: 0.38 },
 ]
 
 const sizes = [
@@ -1000,7 +1002,7 @@ function createLatheGeometry(
   _bandHalfWidth: number,
   reducedDetail = false
 ) {
-  const segments = reducedDetail ? 192 : 384
+  const segments = reducedDetail ? 128 : 384
   const geometry = new THREE.LatheGeometry(profile, segments)
 
   geometry.computeVertexNormals()
@@ -1017,7 +1019,7 @@ function createArcSectionGeometry(
   reducedDetail = false
 ) {
   const baseOutline = profile[profile.length - 1].equals(profile[0]) ? profile.slice(0, -1) : profile
-  const arcSegments = reducedDetail ? 112 : 192
+  const arcSegments = reducedDetail ? 72 : 192
   const endCapSegments = styleSettings.openGapEndRoundingMm > 0.01 ? (reducedDetail ? 6 : 10) : 0
   const outline =
     endCapSegments > 0
@@ -1138,7 +1140,7 @@ function createDiagonalArcGeometry(
   reducedDetail = false
 ) {
   const outline = profile[profile.length - 1].equals(profile[0]) ? profile.slice(0, -1) : profile
-  const arcSegments = reducedDetail ? 80 : 128
+  const arcSegments = reducedDetail ? 64 : 128
   const gapAngleRad = styleSettings.diagonalOpeningMm / getCentreRadiusMm(styleSettings.ringSize)
   const startAngle = Math.PI + gapAngleRad / 2
   const endAngle = startAngle + (Math.PI * 2 - gapAngleRad)
@@ -1280,7 +1282,7 @@ function createWoodSleeveGeometry(
 ) {
   const yMin = -bandHalfWidth
   const yMax = bandHalfWidth
-  const steps = reducedDetail ? 14 : 24
+  const steps = reducedDetail ? 12 : 24
   const woodThickness = outerRadius - metalOuterRadius
   const domeHeight = woodThickness * 0.25
   const outerEdgeSize = getOuterEdgeSizeScene(
@@ -1493,62 +1495,308 @@ function createSoftWindowTexture(theme: ThemeMode, reducedDetail = false) {
   return texture
 }
 
-function createBrushedTexture() {
-  const canvas = document.createElement("canvas")
-  canvas.width = 768
-  canvas.height = 48
-  const ctx = canvas.getContext("2d")
-  if (!ctx) return null
+function fract(value: number) {
+  return value - Math.floor(value)
+}
 
-  const base = ctx.createLinearGradient(0, 0, canvas.width, 0)
-  base.addColorStop(0, "#e3e5e7")
-  base.addColorStop(0.5, "#b7bbbe")
-  base.addColorStop(1, "#dfe2e4")
-  ctx.fillStyle = base
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
+function noise2D(x: number, y: number, seed: number) {
+  return fract(Math.sin(x * 127.1 + y * 311.7 + seed * 74.7) * 43758.5453123)
+}
 
-  for (let index = 0; index < canvas.width; index += 1) {
-    const shade = 200 + ((index * 17) % 23) - 11
-    ctx.fillStyle = `rgba(${shade}, ${shade}, ${shade}, 0.09)`
-    ctx.fillRect(index, 0, 1, canvas.height)
-  }
+function layeredNoise2D(x: number, y: number, seed: number) {
+  const a = noise2D(x, y, seed)
+  const b = noise2D(x * 2.17 + 13.4, y * 2.31 + 9.2, seed + 11.7)
+  const c = noise2D(x * 4.93 + 3.1, y * 5.27 + 17.5, seed + 23.9)
+  return a * 0.58 + b * 0.27 + c * 0.15
+}
 
-  const texture = new THREE.CanvasTexture(canvas)
+function clampByte(value: number) {
+  return Math.round(clamp(value, 0, 255))
+}
+
+function finaliseProceduralTexture(
+  texture: THREE.CanvasTexture,
+  repeatX: number,
+  repeatY: number,
+  colorSpace: THREE.ColorSpace
+) {
   texture.wrapS = THREE.RepeatWrapping
   texture.wrapT = THREE.RepeatWrapping
-  texture.repeat.set(14, 1)
-  texture.colorSpace = THREE.SRGBColorSpace
+  texture.repeat.set(repeatX, repeatY)
+  texture.colorSpace = colorSpace
   texture.needsUpdate = true
   return texture
 }
 
-function createSubtleMetalRoughnessTexture() {
+function createFineMetalRoughnessTexture(reducedDetail = false, variant: "normal" | "polished" = "normal") {
+  const size = reducedDetail ? 256 : 512
   const canvas = document.createElement("canvas")
-  canvas.width = 512
-  canvas.height = 512
+  canvas.width = size
+  canvas.height = size
   const ctx = canvas.getContext("2d")
   if (!ctx) return null
 
-  const imageData = ctx.createImageData(canvas.width, canvas.height)
+  const imageData = ctx.createImageData(size, size)
+  const base = variant === "polished" ? 236 : 214
+  const macroRange = variant === "polished" ? 10 : 24
+  const microRange = variant === "polished" ? 6 : 12
+  const sweepRange = variant === "polished" ? 2.5 : 5
 
-  for (let index = 0; index < imageData.data.length; index += 4) {
-    const value = 205 + Math.floor(Math.random() * 18)
-    imageData.data[index] = value
-    imageData.data[index + 1] = value
-    imageData.data[index + 2] = value
-    imageData.data[index + 3] = 255
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const nx = x / size
+      const ny = y / size
+      const macro = layeredNoise2D(nx * 4.2, ny * 4.2, variant === "polished" ? 4.3 : 1.9)
+      const micro = layeredNoise2D(nx * 22, ny * 18, variant === "polished" ? 9.7 : 6.1)
+      const sweep = Math.sin(nx * Math.PI * 28 + ny * Math.PI * 5)
+      const value = clampByte(base + (macro - 0.5) * macroRange + (micro - 0.5) * microRange + sweep * sweepRange)
+      const index = (y * size + x) * 4
+      imageData.data[index] = value
+      imageData.data[index + 1] = value
+      imageData.data[index + 2] = value
+      imageData.data[index + 3] = 255
+    }
   }
 
   ctx.putImageData(imageData, 0, 0)
+  return finaliseProceduralTexture(
+    new THREE.CanvasTexture(canvas),
+    variant === "polished" ? 7 : 5,
+    2,
+    THREE.NoColorSpace
+  )
+}
 
-  const texture = new THREE.CanvasTexture(canvas)
-  texture.wrapS = THREE.RepeatWrapping
-  texture.wrapT = THREE.RepeatWrapping
-  texture.repeat.set(3, 1)
-  texture.colorSpace = THREE.NoColorSpace
-  texture.needsUpdate = true
+function createMatteRoughnessTexture(reducedDetail = false) {
+  const size = reducedDetail ? 256 : 512
+  const canvas = document.createElement("canvas")
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext("2d")
+  if (!ctx) return null
 
-  return texture
+  const imageData = ctx.createImageData(size, size)
+
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const nx = x / size
+      const ny = y / size
+      const macro = layeredNoise2D(nx * 3.2, ny * 3.2, 12.4)
+      const micro = layeredNoise2D(nx * 18, ny * 18, 17.2)
+      const cloud = Math.sin((nx + ny * 0.42) * Math.PI * 8)
+      const value = clampByte(224 + (macro - 0.5) * 26 + (micro - 0.5) * 12 + cloud * 4)
+      const index = (y * size + x) * 4
+      imageData.data[index] = value
+      imageData.data[index + 1] = value
+      imageData.data[index + 2] = value
+      imageData.data[index + 3] = 255
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0)
+  return finaliseProceduralTexture(new THREE.CanvasTexture(canvas), 4, 3, THREE.NoColorSpace)
+}
+
+function createBrushedRoughnessTexture(reducedDetail = false) {
+  const width = reducedDetail ? 512 : 1024
+  const height = reducedDetail ? 32 : 64
+  const canvas = document.createElement("canvas")
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext("2d")
+  if (!ctx) return null
+
+  const imageData = ctx.createImageData(width, height)
+
+  for (let y = 0; y < height; y += 1) {
+    const ny = y / height
+    const rowBase = 176 + (layeredNoise2D(0.15, ny * 8, 21.4) - 0.5) * 18 + Math.sin(ny * Math.PI * 10) * 4
+
+    for (let x = 0; x < width; x += 1) {
+      const nx = x / width
+      const streak = layeredNoise2D(nx * 38, ny * 2.8, 24.8)
+      const micro = noise2D(x * 0.85, y * 1.15, 28.9)
+      const shimmer = Math.sin(nx * Math.PI * 120 + ny * 5.5 + streak * 2.4)
+      const scratch = noise2D(x * 0.16, y * 2.1, 31.4) > 0.985 ? -22 : 0
+      const value = clampByte(rowBase + (streak - 0.5) * 22 + shimmer * 6 + (micro - 0.5) * 8 + scratch)
+      const index = (y * width + x) * 4
+      imageData.data[index] = value
+      imageData.data[index + 1] = value
+      imageData.data[index + 2] = value
+      imageData.data[index + 3] = 255
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0)
+  return finaliseProceduralTexture(
+    new THREE.CanvasTexture(canvas),
+    reducedDetail ? 14 : 20,
+    reducedDetail ? 2.5 : 3.4,
+    THREE.NoColorSpace
+  )
+}
+
+function createOxidisedRoughnessTexture(reducedDetail = false) {
+  const size = reducedDetail ? 256 : 512
+  const canvas = document.createElement("canvas")
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext("2d")
+  if (!ctx) return null
+
+  const imageData = ctx.createImageData(size, size)
+
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const nx = x / size
+      const ny = y / size
+      const macro = layeredNoise2D(nx * 2.8, ny * 2.8, 41.2)
+      const micro = layeredNoise2D(nx * 14, ny * 14, 45.4)
+      const band = Math.sin((nx * 3.4 + ny * 1.7) * Math.PI * 3.5)
+      const value = clampByte(188 + (macro - 0.5) * 38 + (micro - 0.5) * 16 + band * 6)
+      const index = (y * size + x) * 4
+      imageData.data[index] = value
+      imageData.data[index + 1] = value
+      imageData.data[index + 2] = value
+      imageData.data[index + 3] = 255
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0)
+  return finaliseProceduralTexture(new THREE.CanvasTexture(canvas), 3, 2, THREE.NoColorSpace)
+}
+
+function createOxidisedColourTexture(reducedDetail = false) {
+  const size = reducedDetail ? 256 : 512
+  const canvas = document.createElement("canvas")
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext("2d")
+  if (!ctx) return null
+
+  const imageData = ctx.createImageData(size, size)
+
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const nx = x / size
+      const ny = y / size
+      const cloud = layeredNoise2D(nx * 3.2, ny * 3.2, 51.1)
+      const secondary = layeredNoise2D(nx * 9.5, ny * 9.5, 59.7)
+      const coolShift = Math.sin((nx * 2.2 + ny * 1.1) * Math.PI * 2)
+      const r = clampByte(82 + (cloud - 0.5) * 18 + (secondary - 0.5) * 6 - coolShift * 3)
+      const g = clampByte(98 + (cloud - 0.5) * 14 + (secondary - 0.5) * 5)
+      const b = clampByte(111 + (cloud - 0.5) * 24 + (secondary - 0.5) * 8 + coolShift * 4)
+      const index = (y * size + x) * 4
+      imageData.data[index] = r
+      imageData.data[index + 1] = g
+      imageData.data[index + 2] = b
+      imageData.data[index + 3] = 255
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0)
+  return finaliseProceduralTexture(new THREE.CanvasTexture(canvas), 2.5, 1.8, THREE.SRGBColorSpace)
+}
+
+type FinishMaterialMaps = {
+  brushedSurface: THREE.Texture | null
+  matteRoughness: THREE.Texture | null
+  normalRoughness: THREE.Texture | null
+  oxidisedColour: THREE.Texture | null
+  oxidisedRoughness: THREE.Texture | null
+  polishedRoughness: THREE.Texture | null
+}
+
+type FinishMaterialSettings = {
+  anisotropy: number
+  anisotropyRotation: number
+  bumpMap: THREE.Texture | null
+  bumpScale: number
+  clearcoat: number
+  clearcoatRoughness: number
+  color: string
+  envMapIntensity: number
+  map: THREE.Texture | null
+  metalness: number
+  roughness: number
+  roughnessMap: THREE.Texture | null
+}
+
+function getFinishMaterialSettings(
+  finishOption: FinishOption,
+  finish: FinishId,
+  style: StyleId,
+  technicalView: boolean,
+  maps: FinishMaterialMaps
+): FinishMaterialSettings {
+  if (technicalView) {
+    return {
+      color: finish === "oxidised" ? "#7a8590" : finish === "polished" ? "#ece8e1" : "#d8d7d4",
+      metalness: finish === "oxidised" ? 0.95 : 1,
+      roughness: finish === "matte" ? 0.38 : finish === "polished" ? 0.2 : finish === "oxidised" ? 0.36 : 0.28,
+      envMapIntensity: finish === "polished" ? 1.55 : 1.38,
+      clearcoat: finish === "polished" ? 0.24 : 0.14,
+      clearcoatRoughness: finish === "polished" ? 0.12 : 0.22,
+      anisotropy: 0,
+      anisotropyRotation: Math.PI / 2,
+      map: null,
+      roughnessMap: null,
+      bumpMap: null,
+      bumpScale: 0,
+    }
+  }
+
+  const hammeredRoughnessBoost = style === "hammered" ? 0.06 : 0
+  const facetedEnvBoost = style === "faceted" ? 0.08 : 0
+  const clearcoatTrim = style === "hammered" ? 0.06 : 0
+
+  const base: FinishMaterialSettings = {
+    color: finishOption.colour,
+    metalness: finishOption.metalness,
+    roughness: clamp(finishOption.roughness + hammeredRoughnessBoost, 0.04, 0.92),
+    envMapIntensity: finishOption.envMapIntensity + facetedEnvBoost,
+    clearcoat: Math.max(0, finishOption.clearcoat - clearcoatTrim),
+    clearcoatRoughness: finishOption.clearcoatRoughness,
+    anisotropy: finishOption.anisotropy ?? 0,
+    anisotropyRotation: finishOption.anisotropyRotation ?? Math.PI / 2,
+    map: null,
+    roughnessMap: null,
+    bumpMap: null,
+    bumpScale: 0,
+  }
+
+  switch (finish) {
+    case "normal":
+      return {
+        ...base,
+        roughnessMap: maps.normalRoughness,
+      }
+    case "matte":
+      return {
+        ...base,
+        roughnessMap: maps.matteRoughness,
+      }
+    case "polished":
+      return {
+        ...base,
+        roughnessMap: maps.polishedRoughness,
+      }
+    case "brushed":
+      return {
+        ...base,
+        roughnessMap: maps.brushedSurface,
+        bumpMap: maps.brushedSurface,
+        bumpScale: finishOption.bumpScale ?? 0.008,
+      }
+    case "oxidised":
+      return {
+        ...base,
+        map: maps.oxidisedColour,
+        roughnessMap: maps.oxidisedRoughness,
+      }
+    default:
+      return base
+  }
 }
 
 function Ring({
@@ -1571,10 +1819,29 @@ function Ring({
   technicalView?: boolean
 }) {
   const selectedFinish = finishes.find((item) => item.id === finish) ?? finishes[0]
-  const brushedTexture = useMemo(() => (finish === "brushed" && !technicalView ? createBrushedTexture() : null), [finish, technicalView])
-  const subtleMetalRoughnessTexture = useMemo(
-    () => (!technicalView && (finish === "polished" || finish === "normal") ? createSubtleMetalRoughnessTexture() : null),
-    [finish, technicalView]
+  const normalRoughnessTexture = useMemo(
+    () => (!technicalView && finish === "normal" ? createFineMetalRoughnessTexture(reducedDetail, "normal") : null),
+    [finish, technicalView, reducedDetail]
+  )
+  const matteRoughnessTexture = useMemo(
+    () => (!technicalView && finish === "matte" ? createMatteRoughnessTexture(reducedDetail) : null),
+    [finish, technicalView, reducedDetail]
+  )
+  const polishedRoughnessTexture = useMemo(
+    () => (!technicalView && finish === "polished" ? createFineMetalRoughnessTexture(reducedDetail, "polished") : null),
+    [finish, technicalView, reducedDetail]
+  )
+  const brushedSurfaceTexture = useMemo(
+    () => (!technicalView && finish === "brushed" ? createBrushedRoughnessTexture(reducedDetail) : null),
+    [finish, technicalView, reducedDetail]
+  )
+  const oxidisedRoughnessTexture = useMemo(
+    () => (!technicalView && finish === "oxidised" ? createOxidisedRoughnessTexture(reducedDetail) : null),
+    [finish, technicalView, reducedDetail]
+  )
+  const oxidisedColourTexture = useMemo(
+    () => (!technicalView && finish === "oxidised" ? createOxidisedColourTexture(reducedDetail) : null),
+    [finish, technicalView, reducedDetail]
   )
 
   const { geometry, grooveAccentGeometries, woodInlayGeometry, woodSleeveGeometry } = useMemo(() => {
@@ -1675,59 +1942,68 @@ function Ring({
       grooveAccentGeometries.forEach((item) => item.dispose())
       woodInlayGeometry?.dispose()
       woodSleeveGeometry?.dispose()
-      brushedTexture?.dispose()
-      subtleMetalRoughnessTexture?.dispose()
+      brushedSurfaceTexture?.dispose()
+      matteRoughnessTexture?.dispose()
+      normalRoughnessTexture?.dispose()
+      oxidisedColourTexture?.dispose()
+      oxidisedRoughnessTexture?.dispose()
+      polishedRoughnessTexture?.dispose()
     }
-  }, [geometry, grooveAccentGeometries, woodInlayGeometry, woodSleeveGeometry, brushedTexture, subtleMetalRoughnessTexture])
+  }, [
+    brushedSurfaceTexture,
+    geometry,
+    grooveAccentGeometries,
+    matteRoughnessTexture,
+    normalRoughnessTexture,
+    oxidisedColourTexture,
+    oxidisedRoughnessTexture,
+    polishedRoughnessTexture,
+    woodInlayGeometry,
+    woodSleeveGeometry,
+  ])
 
-  const isBrushed = finish === "brushed"
   const isFacetedCrisp = style === "faceted" && styleSettings.facetedEdgeMode === "hard"
-  const isGroovedPolished = style === "grooved" && finish === "polished"
-
-  const mainColour = technicalView ? "#d8d8d8" : selectedFinish.colour
-  const mainMetalness = selectedFinish.metalness ?? 0.88
-  const mainRoughness = technicalView
-    ? 0.32
-    : isGroovedPolished
-      ? 0.18
-    : finish === "polished"
-      ? 0.12
-      : finish === "brushed"
-        ? 0.28
-        : style === "hammered"
-          ? Math.max(selectedFinish.roughness, 0.46)
-          : finish === "normal"
-            ? 0.18
-            : selectedFinish.roughness
-  const mainEnv = technicalView
-    ? 1.7
-    : isGroovedPolished
-      ? 1.84
-    : finish === "polished"
-      ? 2.15
-      : finish === "brushed"
-        ? 1.35
-        : selectedFinish.envMapIntensity ?? 1.1
-  const clearcoat = technicalView ? 0.38 : finish === "polished" ? 0.85 : selectedFinish.clearcoat ?? 0.58
-  const clearcoatRoughness = technicalView ? 0.12 : finish === "polished" ? 0.08 : isBrushed ? 0.24 : 0.14
+  const finishMaterial = useMemo(
+    () =>
+      getFinishMaterialSettings(selectedFinish, finish, style, technicalView, {
+        brushedSurface: brushedSurfaceTexture,
+        matteRoughness: matteRoughnessTexture,
+        normalRoughness: normalRoughnessTexture,
+        oxidisedColour: oxidisedColourTexture,
+        oxidisedRoughness: oxidisedRoughnessTexture,
+        polishedRoughness: polishedRoughnessTexture,
+      }),
+    [
+      brushedSurfaceTexture,
+      finish,
+      matteRoughnessTexture,
+      normalRoughnessTexture,
+      oxidisedColourTexture,
+      oxidisedRoughnessTexture,
+      polishedRoughnessTexture,
+      selectedFinish,
+      style,
+      technicalView,
+    ]
+  )
 
   return (
     <group rotation={previewRotation}>
       <mesh geometry={geometry} castShadow receiveShadow>
         <meshPhysicalMaterial
-          color={mainColour}
-          metalness={mainMetalness}
-          roughness={mainRoughness}
-          roughnessMap={subtleMetalRoughnessTexture}
-          envMapIntensity={mainEnv}
-          clearcoat={clearcoat}
-          clearcoatRoughness={clearcoatRoughness}
-          anisotropy={isBrushed ? selectedFinish.anisotropy ?? 0 : 0}
-          anisotropyRotation={Math.PI / 2}
-          sheen={selectedFinish.sheen ?? 0}
-          sheenRoughness={0.46}
+          color={finishMaterial.color}
+          metalness={finishMaterial.metalness}
+          roughness={finishMaterial.roughness}
+          roughnessMap={finishMaterial.roughnessMap}
+          envMapIntensity={finishMaterial.envMapIntensity}
+          clearcoat={finishMaterial.clearcoat}
+          clearcoatRoughness={finishMaterial.clearcoatRoughness}
+          anisotropy={finishMaterial.anisotropy}
+          anisotropyRotation={finishMaterial.anisotropyRotation}
+          bumpMap={finishMaterial.bumpMap}
+          bumpScale={finishMaterial.bumpScale}
           flatShading={isFacetedCrisp}
-          map={finish === "brushed" && !technicalView ? brushedTexture : null}
+          map={finishMaterial.map}
         />
       </mesh>
 
@@ -2002,7 +2278,7 @@ function StudioScene({
   autoRotateResumeAt: number
   isDragging: boolean
 }) {
-  const heroBackground = theme === "dark" ? "#16110d" : "#f4ece1"
+  const heroBackground = theme === "dark" ? "#181513" : "#f1ece6"
   const heroFog = heroBackground
   const floorColor = heroBackground
   const contactShadowColor = theme === "dark" ? "#100d0b" : "#b7a48f"
@@ -2090,10 +2366,10 @@ function StudioScene({
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, HERO_FLOOR_Y, 0]} receiveShadow>
         <planeGeometry args={[80, 80]} />
         <MeshReflectorMaterial
-          blur={reducedDetail ? [420, 140] : [360, 110]}
-          resolution={reducedDetail ? 1024 : 2048}
+          blur={reducedDetail ? [220, 80] : [360, 110]}
+          resolution={reducedDetail ? 512 : 2048}
           mirror={theme === "dark" ? 0.34 : 0.42}
-          mixBlur={theme === "dark" ? 1.15 : 1.35}
+          mixBlur={reducedDetail ? (theme === "dark" ? 1.02 : 1.16) : theme === "dark" ? 1.15 : 1.35}
           mixStrength={theme === "dark" ? 1.15 : 1.35}
           mixContrast={theme === "dark" ? 0.95 : 1.02}
           roughness={theme === "dark" ? 0.34 : 0.24}
@@ -2255,10 +2531,14 @@ function App() {
   const [outerEdgeChamferMm, setOuterEdgeChamferMm] = useState(initialConfig.outerEdgeChamferMm)
   const [statusMessage, setStatusMessage] = useState("")
   const [submitState, setSubmitState] = useState<SubmitState>("idle")
-  const [autoRotate, setAutoRotate] = useState(true)
+  const [autoRotate, setAutoRotate] = useState(() => {
+    if (typeof window === "undefined") return true
+    return window.innerWidth >= 768
+  })
   const [isOrbitDragging, setIsOrbitDragging] = useState(false)
   const [autoRotateResumeAt, setAutoRotateResumeAt] = useState(0)
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null)
+  const orbitControlsRef = useRef<any>(null)
   const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => {
     if (typeof window === "undefined") return "desktop"
     const width = window.innerWidth
@@ -2409,9 +2689,9 @@ function App() {
   const isMobileLayout = layoutMode === "mobile" || layoutMode === "compactMobile"
   const renderDelayMs =
     layoutMode === "mobile" || layoutMode === "compactMobile"
-      ? 140
+      ? 220
       : layoutMode === "tablet"
-      ? 90
+      ? 120
       : 0
   const isLandscapeMobile =
     typeof window !== "undefined" &&
@@ -2435,8 +2715,8 @@ function App() {
     ? { position: [0, 0.03, 5.5] as [number, number, number], fov: 19 }
     : { position: [0, 0.03, 5.5] as [number, number, number], fov: 20 }
 
-  const heroTarget: [number, number, number] = [0, -1, 0]
-  const heroDpr: [number, number] = reducedDetail ? [1, 1.25] : [1, 1.75]
+  const heroTarget: [number, number, number] = [0, -0.9, 0]
+  const heroDpr: [number, number] = isMobileLayout ? [1, 1] : reducedDetail ? [1, 1.25] : [1, 1.75]
 
   useEffect(() => {
     const validated = validateStyleSettings({
@@ -2738,6 +3018,11 @@ function App() {
     setStatusMessage(language === "en" ? "Configuration reset." : "Konfiguration zurückgesetzt.")
   }
 
+  function resetHeroCameraView() {
+    orbitControlsRef.current?.reset()
+    setAutoRotateResumeAt(Date.now() + AUTO_ROTATE_RESUME_DELAY_MS)
+  }
+
   async function submitConfig() {
     setSubmitState("sending")
     setStatusMessage(language === "en" ? "Sending configuration..." : "Konfiguration wird gesendet...")
@@ -2924,7 +3209,7 @@ function App() {
                 type="range"
                 min={String(BAND_WIDTH_MIN_MM)}
                 max={String(BAND_WIDTH_MAX_MM)}
-                step="0.1"
+                step="1"
                 value={bandWidth}
                 onChange={(event) => setBandWidth(Number(event.target.value))}
               />
@@ -2976,16 +3261,19 @@ function App() {
                   </Field>
 
                   {outerEdgeTreatment !== "none" && (
-                    <Field label={t.outerEdgeSize} htmlFor={`${styleOptionsGroupId}-outer-edge-size-0.3`}>
-                      <PillChoiceGroup
-                        name={`${styleOptionsGroupId}-outer-edge-size`}
-                        value={String(outerEdgeChamferMm)}
-                        ariaLabel={t.outerEdgeSize}
-                        onChange={(value) => setOuterEdgeChamferMm(Number(value))}
-                        options={OUTER_EDGE_SIZE_OPTIONS.map((sizeOption) => ({
-                          label: `${sizeOption === 1 ? "1.0" : formatValue(language, sizeOption)} mm`,
-                          value: String(sizeOption),
-                        }))}
+                    <Field
+                      label={`${language === "en" ? "Outer edge size" : "Außenkantengröße"}: ${formatValue(language, outerEdgeChamferMm)} mm`}
+                      htmlFor={`${styleOptionsGroupId}-outer-edge-size`}
+                    >
+                      <input
+                        id={`${styleOptionsGroupId}-outer-edge-size`}
+                        className="range-input"
+                        type="range"
+                        min="0.3"
+                        max="1.0"
+                        step="0.1"
+                        value={outerEdgeChamferMm}
+                        onChange={(event) => setOuterEdgeChamferMm(Number(event.target.value))}
                       />
                     </Field>
                   )}
@@ -3301,7 +3589,7 @@ function App() {
                 frameloop={autoRotate ? "always" : "demand"}
                 gl={{
                   antialias: true,
-                  alpha: false,
+                  alpha: true,
                   powerPreference: "high-performance",
                 }}
                 onCreated={({ gl }) => {
@@ -3352,11 +3640,6 @@ function App() {
         </HeroSection>
 
         <TechnicalViews label={t.technicalTitle}>
-          <div className="technical-header">
-            <p className="technical-eyebrow">{t.technicalTitle}</p>
-            <p className="technical-copy">{t.technicalCopy}</p>
-          </div>
-
           <section className="ortho-grid">
             <OrthoView title={t.topView} kind="top" cameraPosition={[0, 3, 0]} cameraUp={[0, 0, -1]} ringSize={renderRingSize} bandWidth={renderBandWidth} style={style} finish={finish} language={language} styleSettings={renderStyleSettings} theme={theme} reducedDetail={reducedDetail} />
             <OrthoView title={t.frontView} kind="front" cameraPosition={[0, 0, 3]} cameraUp={[0, 1, 0]} ringSize={renderRingSize} bandWidth={renderBandWidth} style={style} finish={finish} language={language} styleSettings={renderStyleSettings} theme={theme} reducedDetail={reducedDetail} className="ortho-card-front" />

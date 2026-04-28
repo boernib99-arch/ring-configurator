@@ -746,31 +746,40 @@ button {
 }
 
 .swatch-normal {
-  background: linear-gradient(135deg, #f1f2f3 0%, #bfc3c7 52%, #eef0f1 100%);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.78) 0%, rgba(255, 255, 255, 0.08) 28%, transparent 52%),
+    linear-gradient(135deg, #eef0ef 0%, #c8c8c4 38%, #aeb0b3 58%, #e4e5e5 100%);
 }
 
 .swatch-matte {
-  background: linear-gradient(135deg, #d4d6d8 0%, #b7bbbe 100%);
+  background:
+    radial-gradient(circle at 28% 26%, rgba(255, 255, 255, 0.42) 0%, transparent 42%),
+    linear-gradient(135deg, #d3d6d6 0%, #bfc3c3 52%, #ccd0d0 100%);
 }
 
 .swatch-polished {
-  background: linear-gradient(135deg, #c4c7ca 0%, #ffffff 38%, #a6aaae 58%, #fbfbfb 76%, #b7bbbf 100%);
+  background:
+    linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.94) 22%, rgba(255, 255, 255, 0.06) 42%, rgba(255, 255, 255, 0.86) 66%, transparent 100%),
+    linear-gradient(135deg, #b6babf 0%, #f7f4ee 30%, #bcc1c5 58%, #ffffff 72%, #b5b8bc 100%);
 }
 
 .swatch-brushed {
   background:
     repeating-linear-gradient(
-      90deg,
-      rgba(255, 255, 255, 0.16) 0 1px,
-      rgba(150, 156, 161, 0.08) 1px 2px,
-      transparent 2px 4px
+      0deg,
+      rgba(255, 255, 255, 0.1) 0 1px,
+      rgba(173, 178, 182, 0.04) 1px 2px,
+      rgba(132, 138, 143, 0.08) 2px 3px,
+      transparent 3px 5px
     ),
-    linear-gradient(135deg, #e2e4e6 0%, #b8bcc0 50%, #dde0e2 100%);
+    linear-gradient(135deg, #e4e6e6 0%, #bcc0c0 50%, #d7dada 100%);
   background-blend-mode: overlay, normal;
 }
 
 .swatch-oxidised {
-  background: linear-gradient(135deg, #7a8894 0%, #46576a 100%);
+  background:
+    radial-gradient(circle at 28% 24%, rgba(126, 146, 165, 0.32) 0%, transparent 40%),
+    linear-gradient(135deg, #6d7c89 0%, #4f5f6d 42%, #39454f 100%);
 }
 
 .pose-readout {
@@ -1115,6 +1124,8 @@ button {
   min-height: 0;
   overflow: hidden;
   border-radius: 28px;
+  position: relative;
+  background: transparent;
 }
 
 .hero-aspect {
@@ -1149,36 +1160,10 @@ button {
   display: block;
 }
 
-.technical-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 0;
-  margin: 0;
-}
-
 .ortho-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-}
-
-.technical-eyebrow {
-  margin: 0;
-  color: var(--accent);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-}
-
-.technical-copy {
-  margin: 0;
-  color: var(--muted);
-  font-size: 10px;
-  text-align: right;
-  line-height: 1.3;
 }
 
 .ortho-card {
@@ -1518,6 +1503,11 @@ button {
     width: 100%;
   }
 
+  .layout-mobile .app-layout,
+  .layout-compactMobile .app-layout {
+    padding-top: 0;
+  }
+
   .app-main {
     display: contents;
   }
@@ -1588,22 +1578,31 @@ button {
 
   .preview-sticky {
     position: sticky;
-    top: 0;
-    z-index: 80;
+    top: 14px;
+    z-index: 100;
     width: 100%;
     left: auto;
     right: auto;
     margin-inline: 0;
-    padding: 0;
-    background: var(--bg);
-    backdrop-filter: none;
+    padding: 14px 14px 12px;
+    background: transparent;
+    isolation: isolate;
+  }
+
+  .preview-sticky::before {
+    content: "";
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: calc(14px + clamp(300px, 42vh, 420px) + 32px);
+    z-index: -1;
+    background: radial-gradient(circle at top left, var(--page-bg-start) 0, var(--page-bg-mid) 45%, var(--page-bg-end) 100%);
+    pointer-events: none;
   }
 
   .preview-sticky::after {
-    content: "";
-    display: block;
-    height: 12px;
-    background: var(--bg);
+    content: none;
   }
 
   .sidebar-header {
@@ -1650,12 +1649,19 @@ button {
     margin-top: 0;
     margin-bottom: 0;
     width: 100%;
+    background: transparent;
   }
 
   .hero-aspect {
-    border-radius: 20px;
+    border-radius: 28px;
     box-shadow: 0 24px 48px rgba(60, 45, 30, 0.14);
     height: 100%;
+  }
+
+  .technical-views,
+  .controls-panel {
+    position: relative;
+    z-index: 1;
   }
 
   .hero-rotate-button {
@@ -1675,26 +1681,6 @@ button {
   .controls-scroll {
     gap: 10px;
     margin-top: 0;
-  }
-
-  .technical-header {
-    height: auto;
-    align-items: flex-start;
-    gap: 6px;
-    margin-bottom: 12px;
-  }
-
-  .technical-eyebrow {
-    font-size: 0.7rem;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    margin-bottom: 0;
-  }
-
-  .technical-copy {
-    max-width: 100%;
-    font-size: 0.88rem;
-    line-height: 1.4;
   }
 
   .ortho-grid {
