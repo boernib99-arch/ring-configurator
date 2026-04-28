@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react"
 import type { ReactNode } from "react"
-import { Home, MoonStar, RotateCcw, SendHorizontal, Share2, SunMedium } from "lucide-react"
+import { MoonStar, RotateCcw, SendHorizontal, Share2, SunMedium } from "lucide-react"
 import * as THREE from "three"
 import { Canvas, useFrame, useThree } from "@react-three/fiber"
 import {
@@ -2538,7 +2538,6 @@ function App() {
   const [isOrbitDragging, setIsOrbitDragging] = useState(false)
   const [autoRotateResumeAt, setAutoRotateResumeAt] = useState(0)
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null)
-  const orbitControlsRef = useRef<any>(null)
   const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => {
     if (typeof window === "undefined") return "desktop"
     const width = window.innerWidth
@@ -3018,11 +3017,7 @@ function App() {
     setStatusMessage(language === "en" ? "Configuration reset." : "Konfiguration zurückgesetzt.")
   }
 
-  function resetHeroCameraView() {
-    orbitControlsRef.current?.reset()
-    setAutoRotateResumeAt(Date.now() + AUTO_ROTATE_RESUME_DELAY_MS)
-  }
-
+  
   async function submitConfig() {
     setSubmitState("sending")
     setStatusMessage(language === "en" ? "Sending configuration..." : "Konfiguration wird gesendet...")
